@@ -8,7 +8,7 @@
 #include "engine/framework/core/execution_context.h"
 
 namespace engine::community_models::kitten_tts2 {
-enum class DecoderVariant { Default, StudentW4 };
+enum class DecoderVariant { Default, StudentW4, StudentW8 };
 class WaveformDecoder {
 public:
     WaveformDecoder(std::shared_ptr<const assets::TensorSource> source,

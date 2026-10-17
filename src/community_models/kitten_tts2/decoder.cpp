@@ -13,12 +13,12 @@ struct WaveformDecoder::Impl {
     DecoderVariant variant;
     s3::S3GenRuntime runtime;
     Impl(std::shared_ptr<const assets::TensorSource> source, const core::ExecutionContext & context, DecoderVariant selected)
-        : variant(selected), runtime(selected == DecoderVariant::StudentW4 ? make_student_tensor_source(source) : source,
-          context, selected == DecoderVariant::StudentW4 ? student_decoder_config() : [] {
+        : variant(selected), runtime(selected != DecoderVariant::Default ? make_student_tensor_source(source) : source,
+          context, selected != DecoderVariant::Default ? student_decoder_config() : [] {
               s3::S3GenConfig config;
               config.decoder.variant = s3::S3FlowVariant::MeanFlow;
               return config;
-          }(), selected == DecoderVariant::StudentW4 ? student_decoder_options(source, context.backend_type()) :
+          }(), selected != DecoderVariant::Default ? student_decoder_options(source, context.backend_type()) :
           s3::S3GenRuntimeOptions{assets::TensorStorageType::F32}) {}
 };
 WaveformDecoder::WaveformDecoder(std::shared_ptr<const assets::TensorSource> source,
@@ -44,7 +44,7 @@ std::vector<float> WaveformDecoder::decode(const std::vector<int32_t> & codes,
     tokens.insert(tokens.end(), 3, 4299); // Upstream S3 lookahead preserves the final syllable.
     s3::S3GenTimingBreakdown timing;
     auto result = impl_->runtime.synthesize(
-        ref, tokens, tokens.size(), impl_->variant == DecoderVariant::StudentW4 ? 1 : 2, 0.0f, false, {}, seed, seed, &timing);
+        ref, tokens, tokens.size(), impl_->variant != DecoderVariant::Default ? 1 : 2, 0.0f, false, {}, seed, seed, &timing);
     debug::timing_log_scalar("kitten_tts2.token2mel_ms", timing.token2mel_ms);
     debug::timing_log_scalar("kitten_tts2.flow_encoder_ms", timing.token2mel_encoder_ms);
     debug::timing_log_scalar("kitten_tts2.flow_decoder_ms", timing.token2mel_cfm_ms);

@@ -60,9 +60,9 @@ checks; `NVIDIA_TF32_OVERRIDE=0` is only for controlled component comparisons.
 
 Run `python tools/check_loader_catalog_sync.py`, inspect model-manager package
 information, and rebuild the WebUI before building the server. The UI must expose
-six choices, keep Q8 selected by default, and label the student package
-**GGUF TQ2_1 (CPU w4)** and the default decoder **GGUF TQ2_1 (CPU)**. NVFP4 and
-the two TQ2_1 packages use separate install directories. Generated frontend output is not included in this patch.
+seven choices, keep Q8 selected by default, and label the student packages
+**GGUF TQ2_1 (CPU w4)** and **GGUF TQ2_1 (CPU w8)**, and the default decoder
+**GGUF TQ2_1 (CPU)**. NVFP4 and the three TQ2_1 packages use separate install directories. Generated frontend output is not included in this patch.
 
 ## Interpretation
 
@@ -132,3 +132,51 @@ The rebuilt server served both labels, and synthesis from the final exported
 GGUF matched the earlier checked output byte for byte.
 
 No new performance comparison is claimed by these checks.
+
+## Student W8 follow-up (2026-10-17)
+
+The W8 source is the shipped frozen `cpp/student_w8/decoder.pt` export. The
+companion W4 export and packed checkpoint provide a checked tensor-name mapping;
+the frozen graphs must be identical. The one-step time-conditioning constants
+remain folded. This does not reconstruct an unpublished unfrozen W8 checkpoint.
+
+```sh
+python tests/kitten_tts2/check_student_w8.py \
+  --model /path/to/kitten-tts-2 \
+  --s3gen /path/to/s3gen_meanflow.safetensors \
+  --probe build-kitten2/bin/kitten_tts2_student_probe \
+  --output validation/student-w8
+build-kitten2/bin/kitten_tts2_student_int8_probe \
+  /path/to/kitten-tts2-tq2_1-student-w8-multilingual.gguf
+```
+
+- GGUF: 1,437,030,016 bytes; SHA-256
+  `e85faf1da56a50b9886647a2e6bd3e49fb3c9d427c655c7067d76fab4bf1c6a4`.
+- All 3,770 tensor payloads were checked: 2,036 student tensors match the
+  staged source; the other 1,734 tensors match the existing TQ2_1 package.
+  The 196 ternary LM matrices retain their exact stored values.
+- All 457 recovered student matrices reconstruct the exported F32 weights
+  bit for bit. The package retains 17 folded time projections, executes 409
+  linears with INT8 on CPU and expands 48 convolutions to F32.
+- The integer-reference probe passed all 409 W8 and 426 W4 linears. Synthetic
+  tests cover full-range positive/negative INT8 values that would saturate a
+  single AVX2 `maddubs` pair sum, plus scalar and unaligned-tail paths.
+- Against the frozen upstream graph with zero flow noise, mel relative L2
+  error was 0.0162434 for F32 linears and 0.0162835 for INT8, within the existing
+  0.02 component tolerance. These are execution differences, not added weight
+  reconstruction error or audio quality scores.
+- CPU server checks passed repeated preset and cloned requests, voice/reference
+  switching, non-silent chunked output and invalid-input rejection. All 38
+  shipped W8 voice entries retain their reference conditioning; the nine
+  language presets and PreparedBruno use the existing native student policy.
+  Automatic preparation also completed all 48 entries.
+- ASR found no word errors in four distinct short preset/clone samples. The
+  longer chunked sample omitted a sentence (17.5% word error), matching the
+  known content-completeness limitation of the other packages.
+
+These checks do not establish faster inference or better perceptual quality
+than W4. W8 requires this updated native runtime and the CPU backend.
+
+The final server served all three TQ2_1 labels. W4 and default-decoder seeded
+outputs matched their prior baselines byte for byte; W8 matched its tested
+output. WebUI type checking, production build and catalog sync passed.

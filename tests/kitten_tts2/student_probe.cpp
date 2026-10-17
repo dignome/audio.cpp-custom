@@ -60,7 +60,7 @@ int main(int argc, char ** argv) {
             write_f32(outdir / (name + ".f32"), source->require_f32("flow." + name));
         std::vector<std::string> packed_names;
         for (const auto & tensor : packed->tensors()) {
-            if (tensor.name.size() >= 8 && tensor.name.compare(tensor.name.size()-8,8,".packed4") == 0)
+            if (tensor.name.size() >= 8 && (tensor.name.compare(tensor.name.size()-8,8,".packed4") == 0 || tensor.name.compare(tensor.name.size()-8,8,".packed8") == 0))
                 packed_names.push_back(tensor.name.substr(0,tensor.name.size()-8));
         }
         std::sort(packed_names.begin(),packed_names.end());

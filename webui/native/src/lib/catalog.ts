@@ -148,6 +148,7 @@ function exposedPackageRank(entry: PackageEntry, selectedId?: string): number {
 
 function packageLabel(entry: PackageEntry): string {
   if (entry.family === 'kitten_tts2' && entry.precision === 'tq2_1') {
+    if (entry.id === 'kitten_tts2_tq2_1_w8') return 'GGUF TQ2_1 (CPU w8)';
     return entry.id === 'kitten_tts2_tq2_1' ? 'GGUF TQ2_1 (CPU w4)' : 'GGUF TQ2_1 (CPU)';
   }
   if (entry.family === 'sanotts') {

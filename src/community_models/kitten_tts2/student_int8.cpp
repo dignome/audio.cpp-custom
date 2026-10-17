@@ -31,11 +31,14 @@ std::shared_ptr<StudentInt8Weights> load_student_int8_weights(
     std::memcpy(dims, shape.bytes.data(), sizeof(dims));
     if (dims[0] != output || dims[1] != input || input <= 0 || input > 65536 || output <= 0 || output > 65536)
         throw std::runtime_error("invalid student INT8 dimensions: " + prefix);
-    const auto raw = source.require_tensor_data(prefix + ".packed4");
+    const bool wide = source.has_tensor(prefix + ".packed8");
+    if (wide && source.has_tensor(prefix + ".packed4")) throw std::runtime_error("mixed student codes: " + prefix);
+    const auto raw = source.require_tensor_data(prefix + (wide ? ".packed8" : ".packed4"));
     if (assets::ggml_type_for_tensor_dtype(raw.metadata.dtype) != GGML_TYPE_I8 ||
-        raw.bytes.size() != static_cast<size_t>((input * output + 1) / 2))
+        raw.bytes.size() != static_cast<size_t>(wide ? input * output : (input * output + 1) / 2))
         throw std::runtime_error("invalid student INT8 packed bytes: " + prefix);
     auto w = std::make_shared<StudentInt8Weights>();
+    w->full_range = wide;
     w->input = input; w->output = output; w->stride = (input + 31) / 32 * 32;
     w->scales = source.require_f32(prefix + ".scale", {output});
     for (float s : w->scales) if (!std::isfinite(s) || s <= 0) throw std::runtime_error("invalid student INT8 scale");
@@ -43,8 +46,9 @@ std::shared_ptr<StudentInt8Weights> load_student_int8_weights(
     w->sums.resize(output, 0); w->avx2 = student_int8_has_avx2();
     for (int64_t o = 0; o < output; ++o) for (int64_t k = 0; k < input; ++k) {
         const auto i = o * input + k;
-        const auto byte = std::to_integer<unsigned>(raw.bytes[i / 2]);
-        const int8_t q = static_cast<int8_t>(((byte >> (4 * (1 - i % 2))) & 15) - 8);
+        const auto byte = std::to_integer<unsigned>(raw.bytes[wide ? i : i / 2]);
+        const int8_t q = static_cast<int8_t>(wide ? (byte < 128 ? static_cast<int>(byte) : static_cast<int>(byte)-256)
+            : static_cast<int>((byte >> (4 * (1 - i % 2))) & 15) - 8);
         w->codes[o * w->stride + k] = q; w->sums[o] += q;
     }
     return w;
@@ -115,10 +119,10 @@ codecs::s3gen::S3FlowLinearFactory make_student_int8_factory(std::shared_ptr<con
     struct State { size_t count = 0, codes = 0, original_f32 = 0; };
     auto state = std::make_shared<State>();
     return [source = std::move(source), state](std::string_view name, int64_t input, int64_t output) -> codecs::s3gen::S3FlowLinearOperation {
-        if (!source->has_tensor(std::string(name) + ".packed4")) return {};
+        if (!source->has_tensor(std::string(name) + ".packed4") && !source->has_tensor(std::string(name) + ".packed8")) return {};
         auto w = load_student_int8_weights(*source, name, input, output);
         ++state->count; state->codes += w->codes.size(); state->original_f32 += static_cast<size_t>(input * output) * 4;
-        if (state->count == 426) {
+        if (state->count == (source->has_tensor("flow.decoder.estimator.time_embed_mixer.weight.folded") ? 409 : 426)) {
             debug::timing_log_scalar("kitten_tts2.student.int8.linears", static_cast<double>(state->count));
             debug::timing_log_scalar("kitten_tts2.student.int8.codes_bytes", static_cast<double>(state->codes));
             debug::timing_log_scalar("kitten_tts2.student.int8.replaced_f32_bytes", static_cast<double>(state->original_f32));

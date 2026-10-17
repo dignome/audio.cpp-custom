@@ -51,6 +51,8 @@ def prepare_voices(args, model: Path, s3gen: Path, root: Path, required: set[str
         index_path = model / "voices/voices.json"
         index = json.loads(index_path.read_text(encoding="utf-8"))
         missing = {name: entry for name, entry in index.items() if name not in prepared}
+        if decoder == "student_w8" and "PreparedBruno" not in prepared:
+            missing["PreparedBruno"] = index["Bruno"]
         if missing:
             preparer = args.voice_preparer or args.converter.with_name(
                 "audiocpp_kitten_tts2_prepare_voices" + args.converter.suffix)
@@ -72,7 +74,7 @@ def prepare_voices(args, model: Path, s3gen: Path, root: Path, required: set[str
             output = root / "voices.json"
             command = [str(preparer.resolve()), str(model), str(s3gen), str(manifest_path),
                        str(output), args.voice_backend, str(args.threads)]
-            if decoder == 'student_w4':
+            if decoder != 'default':
                 command.append(decoder)
             subprocess.run(command, check=True)
             additions = json.loads(output.read_text(encoding="utf-8"))
@@ -105,7 +107,7 @@ def main() -> None:
     parser.add_argument("--overwrite", action="store_true", help="Replace an existing output GGUF.")
     parser.add_argument("--type", choices=("bf16", "q8_0", "q4_0", "nvfp4", "tq2_1"), default="q8_0",
                         help="LM export type (default q8_0). q4_0/nvfp4/tq2_1 use a Q8_0 embedding.")
-    parser.add_argument("--decoder", choices=("default", "student_w4"),
+    parser.add_argument("--decoder", choices=("default", "student_w4", "student_w8"),
                         help="Decoder to package (default: student_w4 for tq2_1, default for other types).")
     parser.add_argument("--ggml-library", type=Path, help="kitten_tts2_quant_bridge shared library from this branch (required for nvfp4/tq2_1).")
     parser.add_argument("--student-checkpoint", type=Path, help="Packed student_w4 checkpoint (defaults to MODEL/decoders/student_w4.pt).")
@@ -118,8 +120,10 @@ def main() -> None:
     parser.add_argument("--voices-output", type=Path, help="Also save the complete prepared voice index for reuse or validation.")
     args = parser.parse_args()
     args.decoder = args.decoder or ("student_w4" if args.type == "tq2_1" else "default")
-    if args.decoder == "student_w4" and args.type != "tq2_1":
-        parser.error("student_w4 requires --type tq2_1")
+    if args.student_checkpoint and args.decoder != "student_w4":
+        parser.error("--student-checkpoint applies only to student_w4; W8 uses MODEL/cpp/student_w8/decoder.pt")
+    if args.decoder != "default" and args.type != "tq2_1":
+        parser.error("student decoders require --type tq2_1")
     if args.output.exists() and not args.overwrite:
         parser.error("output exists; pass --overwrite to replace it")
     if args.voices_output and args.voices_output.exists() and not args.overwrite:
@@ -163,14 +167,18 @@ def main() -> None:
             staged_lm = root / "language-model.gguf"
             stage_language_model(source, staged_lm, args.type, args.ggml_library)
             source = staged_lm
-        if args.decoder == 'student_w4':
-            from kitten_tts2_student_weights import stage_student_decoder
+        if args.decoder != 'default':
             student_source = root / 'student.safetensors'
-            stage_student_decoder(args.student_checkpoint or model / 'decoders/student_w4.pt', s3gen, student_source)
+            if args.decoder == 'student_w4':
+                from kitten_tts2_student_weights import stage_student_decoder
+                stage_student_decoder(args.student_checkpoint or model / 'decoders/student_w4.pt', s3gen, student_source)
+            else:
+                from kitten_tts2_student_w8_weights import stage_student_w8
+                stage_student_w8(model, s3gen, student_source)
             s3gen = student_source
             config = json.loads(sidecars['config.json'].read_text(encoding='utf-8'))
-            config['default_decoder'] = 'student_w4'
-            config['audio_cpp'] = {'decoder': 'student_w4'}
+            config['default_decoder'] = args.decoder
+            config['audio_cpp'] = {'decoder': args.decoder}
             sidecars['config.json'] = root / 'config-student.json'
             sidecars['config.json'].write_text(json.dumps(config), encoding='utf-8')
         # Keep preparation manifests (including local WAV paths) outside the
@@ -186,7 +194,7 @@ def main() -> None:
             "Powered by Stellon Labs.\n"
             "Packaging changes: language-model tensors converted to audio.cpp GGUF; "
             "native S3 meanflow and speaker encoder tensors included with prepared voices.\n"
-            f"LM storage: {args.type}; decoder: {'KittenML student_w4 (packed W4, CPU INT8 linears)' if args.decoder == 'student_w4' else 'default S3 MeanFlow'}.\n"
+            f"LM storage: {args.type}; decoder: {('KittenML ' + args.decoder + ' (CPU INT8 linears)') if args.decoder != 'default' else 'default S3 MeanFlow'}.\n"
             "S3 decoder: ResembleAI/chatterbox-turbo; speaker encoder: pyannote/embedding.\n"
             "See native/LICENSE and speaker/LICENSE for their respective terms.\n",
             encoding="utf-8",

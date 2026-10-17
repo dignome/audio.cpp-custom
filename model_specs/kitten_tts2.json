@@ -235,6 +235,22 @@
       ]
     },
     {
+      "id": "kitten_tts2_tq2_1_w8",
+      "display_name": "Kitten TTS 2 TQ2_1 CPU w8 GGUF",
+      "default": false,
+      "format": "gguf",
+      "precision": "tq2_1",
+      "target_directory": "kitten-tts2-tq2_1-w8",
+      "files": [
+        "kitten-tts2-tq2_1-student-w8-multilingual.gguf",
+        "LICENSE",
+        "NOTICE",
+        "native/LICENSE",
+        "speaker/LICENSE",
+        "SHA256SUMS"
+      ]
+    },
+    {
       "id": "kitten_tts2_tq2_1",
       "display_name": "Kitten TTS 2 TQ2_1 CPU w4 GGUF",
       "default": false,

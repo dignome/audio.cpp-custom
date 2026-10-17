@@ -80,6 +80,7 @@ std::shared_ptr<const Assets> load_assets(const std::filesystem::path & path) {
     if (const auto * package = out->config.find("audio_cpp")) {
         const auto decoder = json::optional_string(*package, "decoder", "default");
         if (decoder == "student_w4") out->decoder = DecoderVariant::StudentW4;
+        else if (decoder == "student_w8") out->decoder = DecoderVariant::StudentW8;
         else if (decoder != "default") throw std::runtime_error("unsupported experimental Kitten decoder: " + decoder);
     }
     const auto & tm = out->config.require("token_map");
@@ -272,7 +273,7 @@ private:
         voice->speaker = speaker_->project(identity);
         voice->reference_codes = tokenizer_->tokenize(wav16, std::nullopt).tokens;
         runtime::AudioBuffer wav24{24000,1,resample(24000)};
-        auto conditioning = prepare_decoder_reference(std::move(wav24), *tokenizer_, *camp_, assets_->decoder == DecoderVariant::StudentW4);
+        auto conditioning = prepare_decoder_reference(std::move(wav24), *tokenizer_, *camp_, assets_->decoder != DecoderVariant::Default);
         voice->prompt_tokens.assign(conditioning.prompt_tokens.begin(), conditioning.prompt_tokens.end());
         voice->mel = std::move(conditioning.prompt_feat);
         voice->embedding = std::move(conditioning.embedding);

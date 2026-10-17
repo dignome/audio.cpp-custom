@@ -10,6 +10,7 @@ struct StudentInt8Weights {
     std::vector<int32_t> sums;
     std::vector<float> scales;
     bool avx2;
+    bool full_range = false;
 };
 bool student_int8_has_avx2();
 std::shared_ptr<StudentInt8Weights> load_student_int8_weights(
