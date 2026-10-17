@@ -1,4 +1,4 @@
-# NVFP4 and TQ2_1/student validation
+# NVFP4 and TQ2_1 validation
 
 Enable `ENGINE_BUILD_MODEL_TESTS` with `AUDIOCPP_MODELS=kitten_tts2`.
 Build the following targets alongside the CLI/server:
@@ -47,6 +47,8 @@ requires no environment override.
 build-kitten2/bin/kitten_tts2_session_probe \
   /path/to/kitten-tts2-tq2_1-student-w4-multilingual.gguf validation/tq2 12 default /path/to/kitten-tts-2 cpu
 build-kitten2/bin/kitten_tts2_session_probe \
+  /path/to/kitten-tts2-tq2_1-default-multilingual.gguf validation/tq2-default 12 default /path/to/kitten-tts-2 cpu
+build-kitten2/bin/kitten_tts2_session_probe \
   /path/to/kitten-tts2-nvfp4-multilingual.gguf validation/nvfp4 12 default /path/to/kitten-tts-2 cuda
 ```
 
@@ -58,8 +60,9 @@ checks; `NVIDIA_TF32_OVERRIDE=0` is only for controlled component comparisons.
 
 Run `python tools/check_loader_catalog_sync.py`, inspect model-manager package
 information, and rebuild the WebUI before building the server. The UI must expose
-five choices, keep Q8 selected by default, and use separate install directories
-for NVFP4 and TQ2_1. Generated frontend output is not included in this patch.
+six choices, keep Q8 selected by default, and label the student package
+**GGUF TQ2_1 (CPU w4)** and the default decoder **GGUF TQ2_1 (CPU)**. NVFP4 and
+the two TQ2_1 packages use separate install directories. Generated frontend output is not included in this patch.
 
 ## Interpretation
 
@@ -102,3 +105,30 @@ omit a sentence with both the default and student decoders. Multilingual
 conditioning is retained; quality across every language and human listening
 validation have not been established. The RTX 4060 Ti checks do not validate
 RTX 5090 native FP4 performance or older NVIDIA cards.
+
+## Default-decoder TQ2_1 follow-up (2026-10-17)
+
+- Exported with `--type tq2_1 --decoder default`: 1,855,355,872 bytes,
+  SHA-256 `4ffe596bfae906f2caf42b138aac85dac4e0dbff860480ebe28efe85127f9835`.
+- Independently decoded all 196 TQ2_1 body matrices: 1,409,286,144 values
+  matched the source BF16 checkpoint exactly. The Q8_0 embedding retains its
+  existing quantization error.
+- All 2,856 exported tensor payloads and all 48 default-decoder voice entries
+  matched the package exercised through the server. The embedded configuration
+  selects the default decoder; no student tensors are included.
+- CPU server checks with 12 threads, seed 1234 and a 200-token limit from the
+  first request passed preset repeatability, voice switching, non-silent chunked
+  output, cloning repeatability, reference switching, and invalid-input rejection.
+  The standalone Windows session probe exited before producing output, so these
+  checks used the HTTP server instead.
+- ASR screening found no word errors in the four distinct short preset/clone
+  clips. The long chunked sample omitted one sentence and had 20% word error.
+  This is a content-completeness limitation, not evidence of perceptual quality.
+- WebUI type checking and production build passed. Catalog checks exposed all
+  six packages, the requested CPU/CPU w4 labels, separate TQ2_1 directories and
+  Q8 as default, without a forced Kitten weight-type override.
+
+The rebuilt server served both labels, and synthesis from the final exported
+GGUF matched the earlier checked output byte for byte.
+
+No new performance comparison is claimed by these checks.

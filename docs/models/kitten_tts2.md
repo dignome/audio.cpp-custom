@@ -10,8 +10,9 @@ Python, LibTorch, TorchScript, and ONNX Runtime are not runtime dependencies.
 The family is experimental; a compatible community GGUF is available below.
 CPU and NVIDIA CUDA are validated. Other GPU backends, streaming, automatic
 reference transcription, the upstream text normalizer, and `student_w8` are not
-implemented or validated by this port. The TQ2_1 CPU package uses `student_w4`
-with INT8 linear execution; the other packages use the full default decoder.
+implemented or validated by this port. TQ2_1 CPU packages offer either the full
+default decoder or `student_w4` with INT8 linear execution. The other packages
+use the full default decoder.
 
 ## Build
 
@@ -287,10 +288,12 @@ stored separately.
 | WebUI choice | Package ID | Download filename | Decoder |
 | --- | --- | --- | --- |
 | GGUF NVFP4 | `kitten_tts2_nvfp4` | [kitten-tts2-nvfp4-multilingual.gguf](https://huggingface.co/dignome/kitten_tts2/resolve/main/kitten-tts2-nvfp4-multilingual.gguf) | Default MeanFlow |
-| GGUF TQ2_1 (CPU) | `kitten_tts2_tq2_1` | [kitten-tts2-tq2_1-student-w4-multilingual.gguf](https://huggingface.co/dignome/kitten_tts2/resolve/main/kitten-tts2-tq2_1-student-w4-multilingual.gguf) | Student W4, INT8 linears on CPU |
+| GGUF TQ2_1 (CPU) | `kitten_tts2_tq2_1_default` | [kitten-tts2-tq2_1-default-multilingual.gguf](https://huggingface.co/dignome/kitten_tts2/resolve/main/kitten-tts2-tq2_1-default-multilingual.gguf) | Default MeanFlow |
+| GGUF TQ2_1 (CPU w4) | `kitten_tts2_tq2_1` | [kitten-tts2-tq2_1-student-w4-multilingual.gguf](https://huggingface.co/dignome/kitten_tts2/resolve/main/kitten-tts2-tq2_1-student-w4-multilingual.gguf) | Student W4, INT8 linears on CPU |
 
-These packages install into `models/kitten-tts2-nvfp4/` and
-`models/kitten-tts2-tq2_1/` respectively. Both retain the Q8_0 embedding, BF16
+These packages install into `models/kitten-tts2-nvfp4/`,
+`models/kitten-tts2-tq2_1-default/`, and `models/kitten-tts2-tq2_1/` respectively.
+All three retain the Q8_0 embedding, BF16
 norms and speaker projections, reference encoders and 48 prepared multilingual
 voice entries. Leave `kitten_tts2.weight_type` unset or `native`.
 
@@ -311,9 +314,11 @@ on other NVIDIA generations.
 
 TQ2_1 preserves the supplied BF16 ternary body values exactly in 68-byte blocks
 of 256 weights. It uses **type ID 44 in this branch**; Kitten's own ID 43 conflicts
-with audio.cpp's I2_S. The complete student bundle is about 1.41 GB and requires
-this branch's CPU support. Select `--backend cpu`; GPU loading returns a clear
-error. CPU dot products have AVX2 and scalar implementations. The 474 student
+with audio.cpp's I2_S. The default-decoder bundle is about 1.86 GB; the student
+bundle is about 1.41 GB. Both require this branch's CPU support. Select
+`--backend cpu`; GPU loading returns a clear error. CPU dot products have AVX2
+and scalar implementations. The default package retains the full S3 MeanFlow
+decoder for both preset speech and cloning. In the CPU w4 package, the 474 student
 matrices remain packed W4 on disk. At load time, 426 linears expand to INT8;
 48 convolutions use F32. INT8 is selected automatically on CPU. Preset speech
 and reference-audio cloning both use the student decoder.
@@ -332,15 +337,24 @@ python tools/community_models/prepare_kitten_tts2_gguf.py \
 python tools/community_models/prepare_kitten_tts2_gguf.py \
   --model /absolute/path/kitten-tts-2 --converter build-kitten2/bin/audiocpp_gguf \
   --ggml-library build-kitten2/bin/libkitten_tts2_quant_bridge.so \
-  --type tq2_1 --output kitten-tts2-tq2_1-student-w4-multilingual.gguf
+  --type tq2_1 --decoder student_w4 --output kitten-tts2-tq2_1-student-w4-multilingual.gguf
+
+python tools/community_models/prepare_kitten_tts2_gguf.py \
+  --model /absolute/path/kitten-tts-2 --converter build-kitten2/bin/audiocpp_gguf \
+  --ggml-library build-kitten2/bin/libkitten_tts2_quant_bridge.so \
+  --type tq2_1 --decoder default --output kitten-tts2-tq2_1-default-multilingual.gguf
 ```
 
-TQ2_1 uses `lm/model.safetensors`, `decoders/student_w4.pt`, and
-`cpp/student_w4/voices.json`. Missing presets are prepared with the student
-reference policy. `--prepared-voices` must match the selected decoder. Both
-exports still need the original S3/HiFT/tokenizer assets (`--s3gen`) and license
-(`--s3-license`) if absent from the model checkout. The exporter validates
-TQ2_1 body reconstruction exactly and preserves student codes and scale divisors.
+Both TQ2_1 packages use `lm/model.safetensors`. `--decoder default` uses the
+original S3 MeanFlow assets and `cpp/default/voices.json`. `--decoder student_w4`
+also requires `decoders/student_w4.pt` and uses `cpp/student_w4/voices.json`.
+Omitting `--decoder` retains the student decoder for TQ2_1; other export types
+default to the original decoder. Missing presets are prepared with the selected
+decoder's reference policy, and `--prepared-voices` must match that decoder.
+All exports still need the original S3/HiFT/tokenizer assets (`--s3gen`) and
+license (`--s3-license`) if absent from the model checkout. The exporter validates
+TQ2_1 body reconstruction exactly and preserves student codes and scale divisors
+when packaging that decoder.
 
 The TQ2_1 reference codec and CPU dot product are adapted from
 KittenML/kitten-tts-2-cpp commit `1ce0bb5`, under the MIT license retained in

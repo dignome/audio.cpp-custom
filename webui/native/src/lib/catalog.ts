@@ -147,7 +147,9 @@ function exposedPackageRank(entry: PackageEntry, selectedId?: string): number {
 }
 
 function packageLabel(entry: PackageEntry): string {
-  if (entry.family === 'kitten_tts2' && entry.precision === 'tq2_1') return 'GGUF TQ2_1 (CPU)';
+  if (entry.family === 'kitten_tts2' && entry.precision === 'tq2_1') {
+    return entry.id === 'kitten_tts2_tq2_1' ? 'GGUF TQ2_1 (CPU w4)' : 'GGUF TQ2_1 (CPU)';
+  }
   if (entry.family === 'sanotts') {
     if (entry.id.includes('_heart_nano_')) return 'Heart Nano';
     if (entry.id.includes('_heart_')) return 'Heart';

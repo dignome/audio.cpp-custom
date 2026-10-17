@@ -219,8 +219,24 @@
       ]
     },
     {
+      "id": "kitten_tts2_tq2_1_default",
+      "display_name": "Kitten TTS 2 TQ2_1 CPU GGUF",
+      "default": false,
+      "format": "gguf",
+      "precision": "tq2_1",
+      "target_directory": "kitten-tts2-tq2_1-default",
+      "files": [
+        "kitten-tts2-tq2_1-default-multilingual.gguf",
+        "LICENSE",
+        "NOTICE",
+        "native/LICENSE",
+        "speaker/LICENSE",
+        "SHA256SUMS"
+      ]
+    },
+    {
       "id": "kitten_tts2_tq2_1",
-      "display_name": "Kitten TTS 2 TQ2_1 CPU GGUF (student decoder)",
+      "display_name": "Kitten TTS 2 TQ2_1 CPU w4 GGUF",
       "default": false,
       "format": "gguf",
       "precision": "tq2_1",
