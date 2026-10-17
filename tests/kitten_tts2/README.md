@@ -31,6 +31,8 @@ build-kitten2/bin/model_spec_system_test
 
 ## Validation assets
 
+For NVFP4, TQ2_1 and the student decoder, see [quantization validation](quantization.md).
+
 ### Updated BF16, Q8 and hybrid Q4
 
 Build `kitten_tts2_session_probe` with `-DENGINE_BUILD_MODEL_TESTS=ON` in both

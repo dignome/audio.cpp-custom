@@ -5,8 +5,10 @@
 #include "engine/framework/modules/vocoders/hift_vocoder.h"
 
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace engine::codecs::s3gen {
@@ -101,6 +103,8 @@ struct S3FlowDecoderConfig {
     int64_t time_hidden_size = 1024;
     int64_t middle_blocks = 12;
     int64_t attention_layers = 4;
+    // Disable for attention dimensions unsupported by a backend's flash kernels.
+    bool use_flash_attention = true;
 };
 
 struct S3GenConfig {
@@ -118,8 +122,28 @@ struct S3GenWeightBinding {
         modules::HiftVocoderWeightLayout::TorchParametrizedWeightNorm;
 };
 
+// Optional model-defined preprocessing before flow Linear/Conv1d weights.
+// Input has features on its last logical axis, including for convolutions.
+// Return an F32 tensor with the same logical shape. The weight name includes
+// the flow prefix and ".weight" suffix. Called only while building a graph;
+// captured state must remain valid for the runtime's lifetime.
+using S3FlowInputTransform = std::function<core::TensorValue(
+    core::ModuleBuildContext &, const core::TensorValue &, std::string_view)>;
+
+// Optional replacement for a flow linear projection (without bias).
+// Factory runs while loading weights; an empty operation retains the usual path.
+// Captured weights must outlive all graphs built with the returned operation.
+using S3FlowLinearOperation = std::function<core::TensorValue(
+    core::ModuleBuildContext &, const core::TensorValue &)>;
+using S3FlowLinearFactory = std::function<S3FlowLinearOperation(
+    std::string_view, int64_t /* in_features */, int64_t /* out_features */)>;
+
 struct S3GenRuntimeOptions {
     assets::TensorStorageType weight_storage_type = assets::TensorStorageType::Native;
+    S3FlowInputTransform flow_input_transform;
+    S3FlowLinearFactory flow_linear_factory;
+    // Preserve the historical F16 lookup unless a model explicitly opts out.
+    assets::TensorStorageType flow_embedding_storage_type = assets::TensorStorageType::F16;
 };
 
 class S3GenRuntime {

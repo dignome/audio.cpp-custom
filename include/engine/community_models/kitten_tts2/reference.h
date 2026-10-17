@@ -11,17 +11,25 @@ namespace engine::community_models::kitten_tts2 {
 inline models::chatterbox::EmbedReferenceOutputs prepare_decoder_reference(
     runtime::AudioBuffer wav24,
     const models::chatterbox::S3TokenizerComponent & tokenizer,
-    const models::chatterbox::CAMPPlusEncoderComponent & camp) {
+    const models::chatterbox::CAMPPlusEncoderComponent & camp,
+    bool student = false) {
     if (wav24.sample_rate != 24000 || wav24.channels != 1 || wav24.samples.empty())
         throw std::runtime_error("Kitten decoder reference must be non-empty mono 24 kHz audio");
     const size_t original = wav24.samples.size();
     const size_t repeats = (144000 + original - 1) / original;
-    const size_t length = std::min<size_t>(240000, original * std::max<size_t>(1, repeats));
+    const size_t length = std::min<size_t>(student ? 96000 : 240000, original * std::max<size_t>(1, repeats));
     wav24.samples.resize(length);
     for (size_t i = original; i < length; ++i) wav24.samples[i] = wav24.samples[i % original];
     runtime::AudioBuffer decoder16{16000, 1, audio::resample_mono_torchaudio_sinc_hann(
         wav24.samples, 24000, 16000, audio::torchaudio_sinc_hann_float32_options())};
-    return tokenizer.embed_reference_from_wavs(camp, wav24, decoder16);
+    auto result = tokenizer.embed_reference_from_wavs(camp, wav24, decoder16);
+    if (student) {
+        const size_t count = std::min({result.prompt_tokens.size(), result.prompt_feat.size() / 160, size_t{112}});
+        if (!count) throw std::runtime_error("empty student decoder conditioning");
+        result.prompt_tokens.resize(count);
+        result.prompt_feat.resize(count * 160);
+    }
+    return result;
 }
 
 } // namespace engine::community_models::kitten_tts2

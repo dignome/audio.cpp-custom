@@ -203,6 +203,38 @@
   },
   "packages": [
     {
+      "id": "kitten_tts2_nvfp4",
+      "display_name": "Kitten TTS 2 NVFP4 GGUF",
+      "default": false,
+      "format": "gguf",
+      "precision": "nvfp4",
+      "target_directory": "kitten-tts2-nvfp4",
+      "files": [
+        "kitten-tts2-nvfp4-multilingual.gguf",
+        "LICENSE",
+        "NOTICE",
+        "native/LICENSE",
+        "speaker/LICENSE",
+        "SHA256SUMS"
+      ]
+    },
+    {
+      "id": "kitten_tts2_tq2_1",
+      "display_name": "Kitten TTS 2 TQ2_1 CPU GGUF (student decoder)",
+      "default": false,
+      "format": "gguf",
+      "precision": "tq2_1",
+      "target_directory": "kitten-tts2-tq2_1",
+      "files": [
+        "kitten-tts2-tq2_1-student-w4-multilingual.gguf",
+        "LICENSE",
+        "NOTICE",
+        "native/LICENSE",
+        "speaker/LICENSE",
+        "SHA256SUMS"
+      ]
+    },
+    {
       "id": "kitten_tts2_bf16",
       "display_name": "Kitten TTS 2 BF16 GGUF",
       "default": false,

@@ -1,8 +1,8 @@
-"""Offline Kitten ternary checkpoint reader using standard GGML Q8_0/Q4_0 storage.
+"""Offline Kitten checkpoint reader and LM packing helpers.
 
 Packing follows KittenML/KittenTTS kittenml/kittentts2/ternary.py.
 Updated exports require NumPy, PyTorch and safetensors during conversion only.
-No custom GGML type IDs are written.
+TQ2_1 exports require this branch's type registration and CPU kernels.
 """
 from __future__ import annotations
 
@@ -85,7 +85,45 @@ def is_body_projection(name):
     return re.fullmatch(r'model\.layers\.\d+\.(self_attn\.(q|k|v|o)_proj|mlp\.(gate|up|down)_proj)\.weight', name) is not None
 
 
-def stage_language_model(source: Path, output: Path, export_type: str):
+def stage_language_model(source: Path, output: Path, export_type: str, ggml_library: Path | None = None):
+    library = None
+    dll_directory = None
+    if export_type in ('nvfp4', 'tq2_1'):
+        import ctypes
+        import os
+        if ggml_library is None:
+            raise ValueError('--ggml-library is required for nvfp4 and tq2_1')
+        if os.name == 'nt':
+            dll_directory = os.add_dll_directory(str(ggml_library.resolve().parent))
+        library = ctypes.CDLL(str(ggml_library.resolve()))
+        library.kitten_quant_type_name.argtypes = [ctypes.c_int]
+        library.kitten_quant_type_name.restype = ctypes.c_char_p
+        library.kitten_quant_row_size.argtypes = [ctypes.c_int, ctypes.c_int64]
+        library.kitten_quant_row_size.restype = ctypes.c_size_t
+        library.kitten_quantize_decode.argtypes = [ctypes.c_int, ctypes.c_void_p, ctypes.c_void_p,
+                                                 ctypes.c_void_p, ctypes.c_int64]
+        library.kitten_quantize_decode.restype = ctypes.c_int
+        target_type = 40 if export_type == 'nvfp4' else 44
+        if library.kitten_quant_type_name(target_type) != export_type.encode():
+            raise ValueError('quantization library has an incompatible GGML type registration')
+
+    def pack_body(value):
+        if export_type == 'q4_0':
+            return 2, exact_ternary_blocks(value, 4)
+        values = value.float().numpy().reshape(-1)
+        if value.shape[-1] % 256 or not np.isfinite(values).all():
+            raise ValueError('invalid Kitten body geometry or non-finite weights')
+        packed = np.empty(library.kitten_quant_row_size(target_type, values.size), np.uint8)
+        restored = np.empty_like(values)
+        if not library.kitten_quantize_decode(target_type, values.ctypes.data, packed.ctypes.data,
+                                              restored.ctypes.data, values.size):
+            raise ValueError('GGML quantization validation failed')
+        if not np.isfinite(restored).all():
+            raise ValueError('non-finite reconstructed weights')
+        if export_type == 'tq2_1' and not np.array_equal(values, restored):
+            raise ValueError('TQ2_1 must preserve every supplied BF16 body weight exactly')
+        return target_type, packed.tobytes()
+
     def tensors():
         with safe_open(source, framework='pt') as handle:
             metadata = handle.metadata() or {}
@@ -101,7 +139,7 @@ def stage_language_model(source: Path, output: Path, export_type: str):
                 for name, info in sorted(packed.items()):
                     value = unpack_ternary(handle.get_tensor(name + '::codes'), handle.get_tensor(name + '::scale'), info['shape'])
                     yield name, tuple(value.shape), 8, exact_ternary_blocks(value, 8)
-            elif export_type == 'q4_0':
+            elif export_type in ('q4_0', 'nvfp4', 'tq2_1'):
                 body_count = 0
                 for name in sorted(handle.keys()):
                     value = handle.get_tensor(name).contiguous()
@@ -109,7 +147,8 @@ def stage_language_model(source: Path, output: Path, export_type: str):
                         raise ValueError(f'expected BF16 source tensor: {name}')
                     if is_body_projection(name):
                         body_count += 1
-                        yield name, tuple(value.shape), 2, exact_ternary_blocks(value, 4)
+                        kind, payload = pack_body(value)
+                        yield name, tuple(value.shape), kind, payload
                     else:
                         # audiocpp_gguf applies its native Q8_0 quantizer to the
                         # embedding only; other dense tensors retain BF16.
@@ -117,8 +156,12 @@ def stage_language_model(source: Path, output: Path, export_type: str):
                 if body_count != 196:
                     raise ValueError(f'expected 196 Kitten body projections, got {body_count}')
             else:
-                raise ValueError('expected q8_0 or q4_0 export type')
-    write_tensor_gguf(output, tensors())
+                raise ValueError('unsupported Kitten export type')
+    try:
+        write_tensor_gguf(output, tensors())
+    finally:
+        if dll_directory:
+            dll_directory.close()
 
 
 def refresh_voice_projections(model: Path, voices: dict):

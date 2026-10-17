@@ -44,7 +44,8 @@ def read_voice_array(path: Path, name: str, dtype: str) -> list:
 
 
 def prepare_voices(args, model: Path, s3gen: Path, root: Path, required: set[str]) -> Path:
-    base = (args.prepared_voices or model / "cpp/default/voices.json").resolve()
+    decoder = 'student_w4' if args.type == 'tq2_1' else 'default'
+    base = (args.prepared_voices or model / 'cpp' / decoder / 'voices.json').resolve()
     prepared = json.loads(base.read_text(encoding="utf-8"))
     if not args.prepared_voices:
         index_path = model / "voices/voices.json"
@@ -69,8 +70,11 @@ def prepare_voices(args, model: Path, s3gen: Path, root: Path, required: set[str
             manifest_path = root / "voice-manifest.json"
             manifest_path.write_text(json.dumps(manifest, ensure_ascii=False), encoding="utf-8")
             output = root / "voices.json"
-            subprocess.run([str(preparer.resolve()), str(model), str(s3gen), str(manifest_path),
-                            str(output), args.voice_backend, str(args.threads)], check=True)
+            command = [str(preparer.resolve()), str(model), str(s3gen), str(manifest_path),
+                       str(output), args.voice_backend, str(args.threads)]
+            if decoder == 'student_w4':
+                command.append(decoder)
+            subprocess.run(command, check=True)
             additions = json.loads(output.read_text(encoding="utf-8"))
             if additions.keys() != missing.keys():
                 raise ValueError("native preparer returned an unexpected set of voices")
@@ -99,8 +103,10 @@ def main() -> None:
     parser.add_argument("--converter", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--overwrite", action="store_true", help="Replace an existing output GGUF.")
-    parser.add_argument("--type", choices=("bf16", "q8_0", "q4_0"), default="q8_0",
-                        help="Export type (default q8_0): bf16 preserves full BF16; q8_0 unpacks the ternary checkpoint exactly; q4_0 packs the full BF16 body exactly with a Q8_0 embedding. All use the default decoder.")
+    parser.add_argument("--type", choices=("bf16", "q8_0", "q4_0", "nvfp4", "tq2_1"), default="q8_0",
+                        help="LM export type (default q8_0). tq2_1 includes student_w4; other types use the default decoder. q4_0/nvfp4/tq2_1 use a Q8_0 embedding.")
+    parser.add_argument("--ggml-library", type=Path, help="kitten_tts2_quant_bridge shared library from this branch (required for nvfp4/tq2_1).")
+    parser.add_argument("--student-checkpoint", type=Path, help="Packed student_w4 checkpoint (defaults to MODEL/decoders/student_w4.pt).")
     parser.add_argument("--s3gen", type=Path, help="Official s3gen_meanflow.safetensors (defaults to MODEL/native/).")
     parser.add_argument("--s3-license", type=Path, help="Chatterbox LICENSE (defaults to MODEL/native/LICENSE).")
     parser.add_argument("--voice-preparer", type=Path, help="Native voice preparer (defaults to the converter's sibling executable).")
@@ -115,8 +121,10 @@ def main() -> None:
         parser.error("--voices-output exists; pass --overwrite to replace it")
     if args.threads < 1:
         parser.error("--threads must be positive")
+    if args.type in ('nvfp4', 'tq2_1') and (not args.ggml_library or not args.ggml_library.is_file()):
+        parser.error("nvfp4 and tq2_1 require --ggml-library pointing to kitten_tts2_quant_bridge")
     model = args.model.resolve()
-    decoder_dir = model / "cpp" / "default"
+    decoder_dir = model / "cpp" / ('student_w4' if args.type == 'tq2_1' else 'default')
     s3gen = (args.s3gen or model / "native" / "s3gen_meanflow.safetensors").resolve()
     s3_license = (args.s3_license or model / "native" / "LICENSE").resolve()
     speaker = model / "speaker" / "model.safetensors"
@@ -145,11 +153,21 @@ def main() -> None:
         torch.set_num_threads(args.threads)
         required = set(next(option["values"] for option in spec["options"]["request"] if option["name"] == "voice_id"))
         sidecars["cpp/default/voices.json"] = prepare_voices(args, model, s3gen, root, required)
-        if args.type in ("q8_0", "q4_0"):
+        if args.type in ("q8_0", "q4_0", "nvfp4", "tq2_1"):
             from kitten_tts2_weights import stage_language_model
             staged_lm = root / "language-model.gguf"
-            stage_language_model(source, staged_lm, args.type)
+            stage_language_model(source, staged_lm, args.type, args.ggml_library)
             source = staged_lm
+        if args.type == 'tq2_1':
+            from kitten_tts2_student_weights import stage_student_decoder
+            student_source = root / 'student.safetensors'
+            stage_student_decoder(args.student_checkpoint or model / 'decoders/student_w4.pt', s3gen, student_source)
+            s3gen = student_source
+            config = json.loads(sidecars['config.json'].read_text(encoding='utf-8'))
+            config['default_decoder'] = 'student_w4'
+            config['audio_cpp'] = {'decoder': 'student_w4'}
+            sidecars['config.json'] = root / 'config-student.json'
+            sidecars['config.json'].write_text(json.dumps(config), encoding='utf-8')
         # Keep preparation manifests (including local WAV paths) outside the
         # converter root: only publish the explicit runtime sidecars below.
         package_root = root / "package"
@@ -163,6 +181,7 @@ def main() -> None:
             "Powered by Stellon Labs.\n"
             "Packaging changes: language-model tensors converted to audio.cpp GGUF; "
             "native S3 meanflow and speaker encoder tensors included with prepared voices.\n"
+            f"LM storage: {args.type}; decoder: {'KittenML student_w4 (packed W4, CPU INT8 linears)' if args.type == 'tq2_1' else 'default S3 MeanFlow'}.\n"
             "S3 decoder: ResembleAI/chatterbox-turbo; speaker encoder: pyannote/embedding.\n"
             "See native/LICENSE and speaker/LICENSE for their respective terms.\n",
             encoding="utf-8",
@@ -172,7 +191,7 @@ def main() -> None:
                    "--input", f"s3gen={s3gen}", "--input", f"speaker={speaker}",
                    "--output", str(args.output.resolve()), "--type", "orig",
                    "--keep-type", "language_model/model.embed_tokens.weight=" +
-                       ("q8_0" if args.type == "q4_0" else "orig"),
+                       ("q8_0" if args.type in ("q4_0", "nvfp4", "tq2_1") else "orig"),
                    "--keep-type", "language_model/spk_proj.*=orig",
                    # These checkpoints are F32, with scalar I64 batch counters.
                    # Preserve both; forcing scalar counters to F32 is unsupported.

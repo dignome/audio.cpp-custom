@@ -8,10 +8,11 @@
 #include "engine/framework/core/execution_context.h"
 
 namespace engine::community_models::kitten_tts2 {
+enum class DecoderVariant { Default, StudentW4 };
 class WaveformDecoder {
 public:
     WaveformDecoder(std::shared_ptr<const assets::TensorSource> source,
-        const core::ExecutionContext & execution);
+        const core::ExecutionContext & execution, DecoderVariant variant = DecoderVariant::Default);
     ~WaveformDecoder();
     std::vector<float> decode(const std::vector<int32_t> & codes,
         const std::vector<int64_t> & prompt_tokens, const std::vector<float> & prompt_mel,

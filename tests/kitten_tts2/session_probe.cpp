@@ -19,21 +19,28 @@ int main(int argc, char ** argv) {
             // these tensors and can otherwise escape an end-to-end smoke test.
             namespace assets = engine::assets;
             auto source = assets::open_tensor_source(argv[1]);
-            const auto body_type = assets::tensor_storage_type_for_dtype(
-                source->require_metadata("language_model/model.layers.0.self_attn.q_proj.weight").dtype);
+            const auto stored_type = [&source](const char * name) {
+                const auto metadata = source->require_metadata(name);
+                return assets::tensor_storage_type_for_dtype(metadata.dtype);
+            };
+            const auto body_type = stored_type("language_model/model.layers.0.self_attn.q_proj.weight");
             if (body_type != assets::TensorStorageType::BF16 && body_type != assets::TensorStorageType::Q8_0 &&
-                body_type != assets::TensorStorageType::Q4_0)
+                body_type != assets::TensorStorageType::Q4_0 && body_type != assets::TensorStorageType::TQ2_1 &&
+                body_type != assets::TensorStorageType::NVFP4)
                 throw std::runtime_error("incorrect packaged LM body precision");
-            const auto embedding_type = body_type == assets::TensorStorageType::Q4_0
+            const auto embedding_type = (body_type == assets::TensorStorageType::Q4_0 ||
+                body_type == assets::TensorStorageType::TQ2_1 || body_type == assets::TensorStorageType::NVFP4)
                 ? assets::TensorStorageType::Q8_0 : assets::TensorStorageType::BF16;
             const std::pair<const char *, assets::TensorStorageType> expected[] = {
                 {"language_model/model.embed_tokens.weight", embedding_type},
                 {"language_model/spk_proj.0.weight", assets::TensorStorageType::BF16},
-                {"s3gen/flow.encoder_proj.weight", assets::TensorStorageType::F32},
+                {source->has_tensor("s3gen/flow.encoder_proj.weight.packed4") ?
+                 "s3gen/flow.encoder_proj.weight.scale" : "s3gen/flow.encoder_proj.weight",
+                 assets::TensorStorageType::F32},
                 {"speaker/embedding.weight", assets::TensorStorageType::F32},
             };
             for (const auto & [name, type] : expected)
-                if (assets::tensor_storage_type_for_dtype(source->require_metadata(name).dtype) != type)
+                if (stored_type(name) != type)
                     throw std::runtime_error(std::string("incorrect packaged precision: ") + name);
             std::cout << "PASS: packaged tensor precision" << std::endl;
         }

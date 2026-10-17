@@ -65,6 +65,7 @@ struct Assets {
     assets::ResourceBundle resources;
     json::Value config, lm_config;
     TokenMap tokens{};
+    DecoderVariant decoder = DecoderVariant::Default;
     std::shared_ptr<const assets::TensorSource> lm;
     std::shared_ptr<tokenizers::LlamaBpeTokenizer> tokenizer;
 };
@@ -76,6 +77,11 @@ std::shared_ptr<const Assets> load_assets(const std::filesystem::path & path) {
     if (json::require_string(out->config, "type") != "KITTEN2" ||
         json::require_string(out->lm_config, "model_type") != "qwen3")
         throw std::runtime_error("Kitten TTS 2 requires a KITTEN2 / Qwen3 checkpoint");
+    if (const auto * package = out->config.find("audio_cpp")) {
+        const auto decoder = json::optional_string(*package, "decoder", "default");
+        if (decoder == "student_w4") out->decoder = DecoderVariant::StudentW4;
+        else if (decoder != "default") throw std::runtime_error("unsupported experimental Kitten decoder: " + decoder);
+    }
     const auto & tm = out->config.require("token_map");
     out->tokens = {json::require_i32(tm,"audio_id_base"), json::require_i32(tm,"num_audio_tokens"),
         json::require_i32(tm,"speech_start_id"), json::require_i32(tm,"speech_end_id"),
@@ -140,8 +146,11 @@ public:
             task_.mode != runtime::RunMode::Offline)
             throw std::runtime_error("Kitten TTS 2 supports offline TTS and voice cloning sessions");
         runtime::validate_spec_backed_session_options(options, *contract_, family_name, "Kitten TTS 2");
+        if (assets_->lm->require_metadata("model.layers.0.self_attn.q_proj.weight").dtype == "tq2_1" &&
+            execution_context().backend_type() != core::BackendType::Cpu)
+            throw std::runtime_error("Kitten TQ2_1 weights require the CPU backend; select cpu or use the NVFP4 package for CUDA");
         load_voices(assets_->resources.require_file("default_voices"));
-        waveform_ = std::make_unique<WaveformDecoder>(assets_->resources.open_tensor_source("s3gen"), execution_context());
+        waveform_ = std::make_unique<WaveformDecoder>(assets_->resources.open_tensor_source("s3gen"), execution_context(), assets_->decoder);
         const auto type = runtime::parse_tensor_storage_option(options.options, "kitten_tts2.weight_type",
             assets::TensorStorageType::Native,
             {assets::TensorStorageType::Native, assets::TensorStorageType::F32,
@@ -263,7 +272,7 @@ private:
         voice->speaker = speaker_->project(identity);
         voice->reference_codes = tokenizer_->tokenize(wav16, std::nullopt).tokens;
         runtime::AudioBuffer wav24{24000,1,resample(24000)};
-        auto conditioning = prepare_decoder_reference(std::move(wav24), *tokenizer_, *camp_);
+        auto conditioning = prepare_decoder_reference(std::move(wav24), *tokenizer_, *camp_, assets_->decoder == DecoderVariant::StudentW4);
         voice->prompt_tokens.assign(conditioning.prompt_tokens.begin(), conditioning.prompt_tokens.end());
         voice->mel = std::move(conditioning.prompt_feat);
         voice->embedding = std::move(conditioning.embedding);

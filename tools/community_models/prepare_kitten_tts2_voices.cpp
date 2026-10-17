@@ -28,8 +28,8 @@ json::Value batch(json::Value values) {
 
 int main(int argc, char ** argv) {
     try {
-        if (argc < 5 || argc > 7)
-            throw std::runtime_error("usage: audiocpp_kitten_tts2_prepare_voices MODEL S3GEN MANIFEST OUTPUT [cpu|cuda] [THREADS]");
+        if (argc < 5 || argc > 8)
+            throw std::runtime_error("usage: audiocpp_kitten_tts2_prepare_voices MODEL S3GEN MANIFEST OUTPUT [cpu|cuda] [THREADS] [student_w4]");
         namespace kitten = engine::community_models::kitten_tts2;
         namespace s3 = engine::models::chatterbox;
         namespace assets = engine::assets;
@@ -61,7 +61,9 @@ int main(int argc, char ** argv) {
             auto mono = audio::mixdown_interleaved_to_mono_average(wav.samples, wav.channels);
             engine::runtime::AudioBuffer wav24{24000, 1, audio::resample_mono_torchaudio_sinc_hann(
                 mono, wav.sample_rate, 24000, audio::torchaudio_sinc_hann_float32_options())};
-            const auto ref = kitten::prepare_decoder_reference(std::move(wav24), tokenizer, camp);
+            const bool student = argc > 7 && std::string(argv[7]) == "student_w4";
+            if (argc > 7 && !student) throw std::runtime_error("decoder must be student_w4 when specified");
+            const auto ref = kitten::prepare_decoder_reference(std::move(wav24), tokenizer, camp, student);
             auto identity = json::number_array_as<float>(item.require("identity"));
             if (identity.size() != 512) throw std::runtime_error("invalid preset identity: " + name);
             const auto projected = speaker.project(identity);

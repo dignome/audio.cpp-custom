@@ -32,6 +32,9 @@ struct S3FlowEncoderWeights {
         engine::core::TensorValue bias_tensor;
     };
     struct LinearWeights {
+        S3FlowLinearOperation operation;
+        S3FlowInputTransform input_transform;
+        std::string weight_name;
         engine::core::TensorValue weight_tensor;
         engine::core::TensorValue bias_tensor;
         int64_t out_features = 0;
@@ -39,6 +42,8 @@ struct S3FlowEncoderWeights {
         bool use_bias = false;
     };
     struct Conv1dWeights {
+        S3FlowInputTransform input_transform;
+        std::string weight_name;
         engine::core::TensorValue weight_tensor;
         engine::core::TensorValue bias_tensor;
         int64_t out_channels = 0;
@@ -90,6 +95,9 @@ struct S3FlowDecoderWeights {
         engine::core::TensorValue bias_tensor;
     };
     struct LinearWeights {
+        S3FlowLinearOperation operation;
+        S3FlowInputTransform input_transform;
+        std::string weight_name;
         engine::core::TensorValue weight_tensor;
         engine::core::TensorValue bias_tensor;
         int64_t out_features = 0;
@@ -97,6 +105,8 @@ struct S3FlowDecoderWeights {
         bool use_bias = false;
     };
     struct Conv1dWeights {
+        S3FlowInputTransform input_transform;
+        std::string weight_name;
         engine::core::TensorValue weight_tensor;
         engine::core::TensorValue bias_tensor;
         int64_t out_channels = 0;
@@ -118,6 +128,7 @@ struct S3FlowDecoderWeights {
     struct TransformerBlockWeights {
         int64_t heads = 0;
         int64_t head_dim = 0;
+        bool use_flash_attention = true;
         LayerNormWeights norm1;
         LinearWeights attn_q;
         LinearWeights attn_k;
@@ -232,7 +243,8 @@ std::shared_ptr<const S3FlowEncoderWeights> load_s3_flow_encoder_weights(
     const engine::core::ExecutionContext & execution_context,
     const S3GenConfig & config,
     const std::string & tensor_prefix,
-    engine::assets::TensorStorageType weight_storage_type = engine::assets::TensorStorageType::Native);
+    engine::assets::TensorStorageType weight_storage_type,
+    const S3GenRuntimeOptions & options);
 S3FlowEncoderOutputs compute_s3_flow_encoder_forward(
     S3FlowSessionCache & cache,
     const S3FlowEncoderWeights & weights,
@@ -246,7 +258,8 @@ std::shared_ptr<const S3FlowDecoderWeights> load_s3_flow_decoder_weights(
     const engine::core::ExecutionContext & execution_context,
     const S3GenConfig & config,
     const std::string & tensor_prefix,
-    engine::assets::TensorStorageType weight_storage_type = engine::assets::TensorStorageType::Native);
+    engine::assets::TensorStorageType weight_storage_type,
+    const S3GenRuntimeOptions & options);
 S3FlowCFMOutputs compute_s3_flow_cfm_euler(
     S3FlowSessionCache & cache,
     const S3FlowDecoderWeights & weights,
@@ -331,12 +344,18 @@ S3FlowEncoderWeights::LinearWeights load_flow_linear(
     int64_t out_features,
     int64_t in_features,
     bool use_bias,
-    engine::assets::TensorStorageType weight_storage_type) {
+    engine::assets::TensorStorageType weight_storage_type,
+    const S3GenRuntimeOptions & options) {
     S3FlowEncoderWeights::LinearWeights linear;
+    linear.input_transform = options.flow_input_transform;
+    linear.weight_name = prefix + ".weight";
     linear.out_features = out_features;
     linear.in_features = in_features;
     linear.use_bias = use_bias;
-    linear.weight_tensor = store.load_tensor(source, prefix + ".weight", weight_storage_type, {out_features, in_features});
+    if (options.flow_linear_factory)
+        linear.operation = options.flow_linear_factory(linear.weight_name, in_features, out_features);
+    if (!linear.operation)
+        linear.weight_tensor = store.load_tensor(source, prefix + ".weight", weight_storage_type, {out_features, in_features});
     if (use_bias) {
         linear.bias_tensor = store.load_f32_tensor(source, prefix + ".bias", {out_features});
     }
@@ -352,8 +371,11 @@ S3FlowEncoderWeights::Conv1dWeights load_flow_conv1d(
     int64_t kernel,
     int64_t stride,
     int64_t padding,
-    engine::assets::TensorStorageType weight_storage_type) {
+    engine::assets::TensorStorageType weight_storage_type,
+    const S3GenRuntimeOptions & options) {
     S3FlowEncoderWeights::Conv1dWeights conv;
+    conv.input_transform = options.flow_input_transform;
+    conv.weight_name = prefix + ".weight";
     conv.out_channels = out_channels;
     conv.in_channels = in_channels;
     conv.kernel = kernel;
@@ -382,12 +404,18 @@ S3FlowDecoderWeights::LinearWeights load_decoder_linear(
     int64_t out_features,
     int64_t in_features,
     bool use_bias,
-    engine::assets::TensorStorageType weight_storage_type) {
+    engine::assets::TensorStorageType weight_storage_type,
+    const S3GenRuntimeOptions & options) {
     S3FlowDecoderWeights::LinearWeights linear;
+    linear.input_transform = options.flow_input_transform;
+    linear.weight_name = prefix + ".weight";
     linear.out_features = out_features;
     linear.in_features = in_features;
     linear.use_bias = use_bias;
-    linear.weight_tensor = store.load_tensor(source, prefix + ".weight", weight_storage_type, {out_features, in_features});
+    if (options.flow_linear_factory)
+        linear.operation = options.flow_linear_factory(linear.weight_name, in_features, out_features);
+    if (!linear.operation)
+        linear.weight_tensor = store.load_tensor(source, prefix + ".weight", weight_storage_type, {out_features, in_features});
     if (use_bias) {
         linear.bias_tensor = store.load_f32_tensor(source, prefix + ".bias", {out_features});
     }
@@ -403,8 +431,11 @@ S3FlowDecoderWeights::Conv1dWeights load_decoder_conv1d(
     int64_t kernel,
     int64_t stride,
     bool use_bias,
-    engine::assets::TensorStorageType weight_storage_type) {
+    engine::assets::TensorStorageType weight_storage_type,
+    const S3GenRuntimeOptions & options) {
     S3FlowDecoderWeights::Conv1dWeights conv;
+    conv.input_transform = options.flow_input_transform;
+    conv.weight_name = prefix + ".weight";
     conv.out_channels = out_channels;
     conv.in_channels = in_channels;
     conv.kernel = kernel;
@@ -647,19 +678,38 @@ engine::core::TensorValue batched_matmul(
     return engine::core::wrap_tensor(ggml_mul_mat(ctx.ggml, rhs_transposed.tensor, lhs.tensor), output_shape, GGML_TYPE_F32);
 }
 
+template <typename Weights>
+engine::core::TensorValue transform_flow_input(
+    engine::core::ModuleBuildContext & ctx,
+    const engine::core::TensorValue & input,
+    const Weights & weights) {
+    if (!weights.input_transform) return input;
+    auto output = weights.input_transform(ctx, input, weights.weight_name);
+    if (!output.valid() || output.tensor->type != GGML_TYPE_F32 ||
+        output.shape.rank != input.shape.rank) {
+        throw std::runtime_error("S3 flow input transform must preserve F32 shape: " + weights.weight_name);
+    }
+    for (size_t axis = 0; axis < input.shape.rank; ++axis) {
+        if (output.shape.dims[axis] != input.shape.dims[axis])
+            throw std::runtime_error("S3 flow input transform changed shape: " + weights.weight_name);
+    }
+    return output;
+}
+
 template <typename LinearWeights>
 engine::core::TensorValue linear_lastdim(
     engine::core::ModuleBuildContext & ctx,
-    const engine::core::TensorValue & input,
+    const engine::core::TensorValue & untransformed_input,
     const LinearWeights & weights,
     engine::core::DeferredTensorWriter & writer) {
+    const auto input = weights.operation ? untransformed_input : transform_flow_input(ctx, untransformed_input, weights);
     (void) writer;
     const int64_t rows = input.shape.prefix_elements();
     auto flat = engine::core::reshape_tensor(
         ctx,
         contiguous(ctx, input),
         engine::core::TensorShape::from_dims({rows, input.shape.last_dim()}));
-    auto projected = engine::core::wrap_tensor(
+    auto projected = weights.operation ? weights.operation(ctx, flat) : engine::core::wrap_tensor(
         ggml_mul_mat(ctx.ggml, weights.weight_tensor.tensor, flat.tensor),
         engine::core::TensorShape::from_dims({rows, weights.out_features}),
         GGML_TYPE_F32);
@@ -839,9 +889,12 @@ engine::core::TensorValue mish_activation(
 
 engine::core::TensorValue causal_conv1d_bct(
     engine::core::ModuleBuildContext & ctx,
-    const engine::core::TensorValue & input,
+    const engine::core::TensorValue & untransformed_input,
     const S3FlowDecoderWeights::Conv1dWeights & weights,
     engine::core::DeferredTensorWriter & writer) {
+    const auto input = weights.input_transform
+        ? transpose_bct_btc(ctx, transform_flow_input(ctx, transpose_bct_btc(ctx, untransformed_input), weights))
+        : untransformed_input;
     (void) writer;
     const int64_t batch = input.shape.dims[0];
     const int64_t frames = input.shape.dims[2];
@@ -1013,7 +1066,7 @@ engine::core::TensorValue self_attention_no_mask(
     k = permute_tensor(ctx, k, {0, 2, 1, 3});
     v = permute_tensor(ctx, v, {0, 2, 1, 3});
     engine::core::TensorValue context;
-    if (attention_mask.has_value()) {
+    if (attention_mask.has_value() && weights.use_flash_attention) {
         auto q_contiguous = contiguous(ctx, q);
         auto k_contiguous = contiguous(ctx, k);
         auto v_contiguous = contiguous(ctx, v);
@@ -1035,6 +1088,9 @@ engine::core::TensorValue self_attention_no_mask(
         auto k_t = permute_tensor(ctx, k, {0, 1, 3, 2});
         auto scores = batched_matmul(ctx, q, k_t);
         scores = engine::core::wrap_tensor(ggml_scale(ctx.ggml, scores.tensor, scale), scores.shape, GGML_TYPE_F32);
+        if (attention_mask.has_value()) {
+            scores = add_tensor_values(ctx, scores, *attention_mask);
+        }
         auto attn = engine::core::wrap_tensor(ggml_soft_max(ctx.ggml, contiguous(ctx, scores).tensor), scores.shape, GGML_TYPE_F32);
         context = batched_matmul(ctx, attn, v);
         context = permute_tensor(ctx, context, {0, 2, 1, 3});
@@ -1077,9 +1133,12 @@ engine::core::TensorValue resnet_block_forward(
 
 engine::core::TensorValue flow_conv1d_bct_backend(
     engine::core::ModuleBuildContext & ctx,
-    const engine::core::TensorValue & input,
+    const engine::core::TensorValue & untransformed_input,
     const S3FlowEncoderWeights::Conv1dWeights & weights,
     engine::core::DeferredTensorWriter & writer) {
+    const auto input = weights.input_transform
+        ? transpose_bct_btc(ctx, transform_flow_input(ctx, transpose_bct_btc(ctx, untransformed_input), weights))
+        : untransformed_input;
     (void) writer;
     const int64_t out_frames =
         (input.shape.dims[2] + 2 * weights.padding - weights.kernel) / weights.stride + 1;
@@ -1776,7 +1835,8 @@ public:
         ggml_set_input(spks_in_.tensor);
         ggml_set_input(cond_in_.tensor);
         attention_mask_ =
-            engine::core::make_tensor(ctx, GGML_TYPE_F16, engine::core::TensorShape::from_dims({batch_, weights.config.heads, frames, frames}));
+            engine::core::make_tensor(ctx, weights.config.use_flash_attention ? GGML_TYPE_F16 : GGML_TYPE_F32,
+                                      engine::core::TensorShape::from_dims({batch_, weights.config.heads, frames, frames}));
         ggml_set_input(attention_mask_.tensor);
         ggml_set_output(x_in_.tensor);
         ggml_set_output(mu_in_.tensor);
@@ -1927,7 +1987,11 @@ private:
         }
         cached_attention_mask_values_ = make_attention_key_mask(
             batch_, active_frames_, active_frames_, valid_frames, attention_mask_.shape.dims[1]);
-        engine::core::write_tensor_f16(attention_mask_, cached_attention_mask_values_);
+        if (attention_mask_.tensor->type == GGML_TYPE_F16) {
+            engine::core::write_tensor_f16(attention_mask_, cached_attention_mask_values_);
+        } else {
+            engine::core::write_tensor_f32(attention_mask_, cached_attention_mask_values_);
+        }
         cached_attention_mask_valid_frames_ = valid_frames;
     }
 
@@ -2044,7 +2108,8 @@ std::shared_ptr<const S3FlowEncoderWeights> load_s3_flow_encoder_weights(
     const engine::core::ExecutionContext & execution_context,
     const S3GenConfig & config,
     const std::string & tensor_prefix,
-    engine::assets::TensorStorageType weight_storage_type) {
+    engine::assets::TensorStorageType weight_storage_type,
+    const S3GenRuntimeOptions & options) {
     auto weights = std::make_shared<S3FlowEncoderWeights>();
     weights->config = config.encoder;
     const auto & c = config.encoder;
@@ -2056,43 +2121,42 @@ std::shared_ptr<const S3FlowEncoderWeights> load_s3_flow_encoder_weights(
         execution_context.backend_type(),
         "s3gen.encoder.weights",
         1024ull * 1024ull * 1024ull);
-    // ggml_get_rows (used by S3TokenEmbeddingGraph for this lookup table) only supports F32/F16
-    // and legacy quant types on the CUDA backend, not K-quants -- pin this one small table
-    // (~6.7 MB in F16) to F16 regardless of the requested weight_storage_type so a Q4_K/Q5_K/...
-    // package (e.g. Chatterbox Turbo's chatterbox-turbo-s3gen-q4_k.gguf) doesn't crash on it.
+    // Keep lookup storage independent of general weight quantization. CUDA
+    // get_rows does not support K-quants. F16 remains the default; models that
+    // require unrounded lookup values may explicitly select F32.
     weights->input_embedding_tensor = weights->store->load_tensor(
         source,
         tensor_prefix + "input_embedding.weight",
-        engine::assets::TensorStorageType::F16,
+        options.flow_embedding_storage_type,
         {c.vocabulary_size, hidden});
-    weights->speaker_affine = load_flow_linear(*weights->store, source, tensor_prefix + "spk_embed_affine_layer", mel, c.speaker_embedding_size, true, weight_storage_type);
-    weights->encoder_proj = load_flow_linear(*weights->store, source, tensor_prefix + "encoder_proj", mel, hidden, true, weight_storage_type);
-    weights->embed_linear = load_flow_linear(*weights->store, source, tensor_prefix + "encoder.embed.out.0", hidden, hidden, true, weight_storage_type);
+    weights->speaker_affine = load_flow_linear(*weights->store, source, tensor_prefix + "spk_embed_affine_layer", mel, c.speaker_embedding_size, true, weight_storage_type, options);
+    weights->encoder_proj = load_flow_linear(*weights->store, source, tensor_prefix + "encoder_proj", mel, hidden, true, weight_storage_type, options);
+    weights->embed_linear = load_flow_linear(*weights->store, source, tensor_prefix + "encoder.embed.out.0", hidden, hidden, true, weight_storage_type, options);
     weights->embed_norm = load_flow_layer_norm(*weights->store, source, tensor_prefix + "encoder.embed.out.1", hidden);
     weights->prelook_conv1 =
-        load_flow_conv1d(*weights->store, source, tensor_prefix + "encoder.pre_lookahead_layer.conv1", hidden, hidden, c.prelook_kernel_size, 1, 0, weight_storage_type);
+        load_flow_conv1d(*weights->store, source, tensor_prefix + "encoder.pre_lookahead_layer.conv1", hidden, hidden, c.prelook_kernel_size, 1, 0, weight_storage_type, options);
     weights->prelook_conv2 =
-        load_flow_conv1d(*weights->store, source, tensor_prefix + "encoder.pre_lookahead_layer.conv2", hidden, hidden, c.prelook_output_kernel_size, 1, 0, weight_storage_type);
+        load_flow_conv1d(*weights->store, source, tensor_prefix + "encoder.pre_lookahead_layer.conv2", hidden, hidden, c.prelook_output_kernel_size, 1, 0, weight_storage_type, options);
     auto load_layer = [&](const std::string & prefix) {
         S3FlowEncoderWeights::EncoderLayerWeights layer;
         layer.norm_mha = load_flow_layer_norm(*weights->store, source, prefix + ".norm_mha", hidden);
-        layer.attn.q = load_flow_linear(*weights->store, source, prefix + ".self_attn.linear_q", hidden, hidden, true, weight_storage_type);
-        layer.attn.k = load_flow_linear(*weights->store, source, prefix + ".self_attn.linear_k", hidden, hidden, true, weight_storage_type);
-        layer.attn.v = load_flow_linear(*weights->store, source, prefix + ".self_attn.linear_v", hidden, hidden, true, weight_storage_type);
-        layer.attn.out = load_flow_linear(*weights->store, source, prefix + ".self_attn.linear_out", hidden, hidden, true, weight_storage_type);
-        layer.attn.pos = load_flow_linear(*weights->store, source, prefix + ".self_attn.linear_pos", hidden, hidden, false, weight_storage_type);
+        layer.attn.q = load_flow_linear(*weights->store, source, prefix + ".self_attn.linear_q", hidden, hidden, true, weight_storage_type, options);
+        layer.attn.k = load_flow_linear(*weights->store, source, prefix + ".self_attn.linear_k", hidden, hidden, true, weight_storage_type, options);
+        layer.attn.v = load_flow_linear(*weights->store, source, prefix + ".self_attn.linear_v", hidden, hidden, true, weight_storage_type, options);
+        layer.attn.out = load_flow_linear(*weights->store, source, prefix + ".self_attn.linear_out", hidden, hidden, true, weight_storage_type, options);
+        layer.attn.pos = load_flow_linear(*weights->store, source, prefix + ".self_attn.linear_pos", hidden, hidden, false, weight_storage_type, options);
         layer.attn.pos_bias_u_tensor = weights->store->load_f32_tensor(source, prefix + ".self_attn.pos_bias_u", {c.heads, hidden / c.heads});
         layer.attn.pos_bias_v_tensor = weights->store->load_f32_tensor(source, prefix + ".self_attn.pos_bias_v", {c.heads, hidden / c.heads});
         layer.norm_ff = load_flow_layer_norm(*weights->store, source, prefix + ".norm_ff", hidden);
-        layer.ff.w1 = load_flow_linear(*weights->store, source, prefix + ".feed_forward.w_1", c.feed_forward_size, hidden, true, weight_storage_type);
-        layer.ff.w2 = load_flow_linear(*weights->store, source, prefix + ".feed_forward.w_2", hidden, c.feed_forward_size, true, weight_storage_type);
+        layer.ff.w1 = load_flow_linear(*weights->store, source, prefix + ".feed_forward.w_1", c.feed_forward_size, hidden, true, weight_storage_type, options);
+        layer.ff.w2 = load_flow_linear(*weights->store, source, prefix + ".feed_forward.w_2", hidden, c.feed_forward_size, true, weight_storage_type, options);
         return layer;
     };
     for (int64_t i = 0; i < c.layers; ++i) {
         weights->encoders.push_back(load_layer(tensor_prefix + "encoder.encoders." + std::to_string(i)));
     }
-    weights->up_layer_conv = load_flow_conv1d(*weights->store, source, tensor_prefix + "encoder.up_layer.conv", hidden, hidden, c.upsample_kernel_size, 1, 0, weight_storage_type);
-    weights->up_embed_linear = load_flow_linear(*weights->store, source, tensor_prefix + "encoder.up_embed.out.0", hidden, hidden, true, weight_storage_type);
+    weights->up_layer_conv = load_flow_conv1d(*weights->store, source, tensor_prefix + "encoder.up_layer.conv", hidden, hidden, c.upsample_kernel_size, 1, 0, weight_storage_type, options);
+    weights->up_embed_linear = load_flow_linear(*weights->store, source, tensor_prefix + "encoder.up_embed.out.0", hidden, hidden, true, weight_storage_type, options);
     weights->up_embed_norm = load_flow_layer_norm(*weights->store, source, tensor_prefix + "encoder.up_embed.out.1", hidden);
     for (int64_t i = 0; i < c.upsample_layers; ++i) {
         weights->up_encoders.push_back(load_layer(tensor_prefix + "encoder.up_encoders." + std::to_string(i)));
@@ -2118,7 +2182,8 @@ std::shared_ptr<const S3FlowDecoderWeights> load_s3_flow_decoder_weights(
     const engine::core::ExecutionContext & execution_context,
     const S3GenConfig & config,
     const std::string & tensor_prefix,
-    engine::assets::TensorStorageType weight_storage_type) {
+    engine::assets::TensorStorageType weight_storage_type,
+    const S3GenRuntimeOptions & options) {
     auto weights = std::make_shared<S3FlowDecoderWeights>();
     weights->config = config.decoder;
     const auto & c = config.decoder;
@@ -2135,17 +2200,17 @@ std::shared_ptr<const S3FlowDecoderWeights> load_s3_flow_decoder_weights(
 
     auto load_causal_block = [&](const std::string & prefix, int64_t in_channels, int64_t out_channels) {
         S3FlowDecoderWeights::CausalBlockWeights block;
-        block.conv = load_decoder_conv1d(*weights->store, source, prefix + ".block.0", out_channels, in_channels, 3, 1, true, weight_storage_type);
+        block.conv = load_decoder_conv1d(*weights->store, source, prefix + ".block.0", out_channels, in_channels, 3, 1, true, weight_storage_type, options);
         block.norm = load_decoder_layer_norm(*weights->store, source, prefix + ".block.2", out_channels);
         return block;
     };
 
     auto load_resnet = [&](const std::string & prefix, int64_t in_channels, int64_t out_channels) {
         S3FlowDecoderWeights::ResnetBlockWeights block;
-        block.time_mlp = load_decoder_linear(*weights->store, source, prefix + ".mlp.1", out_channels, c.time_hidden_size, true, weight_storage_type);
+        block.time_mlp = load_decoder_linear(*weights->store, source, prefix + ".mlp.1", out_channels, c.time_hidden_size, true, weight_storage_type, options);
         block.block1 = load_causal_block(prefix + ".block1", in_channels, out_channels);
         block.block2 = load_causal_block(prefix + ".block2", out_channels, out_channels);
-        block.res_conv = load_decoder_conv1d(*weights->store, source, prefix + ".res_conv", out_channels, in_channels, 1, 1, true, weight_storage_type);
+        block.res_conv = load_decoder_conv1d(*weights->store, source, prefix + ".res_conv", out_channels, in_channels, 1, 1, true, weight_storage_type, options);
         return block;
     };
 
@@ -2153,21 +2218,22 @@ std::shared_ptr<const S3FlowDecoderWeights> load_s3_flow_decoder_weights(
         S3FlowDecoderWeights::TransformerBlockWeights block;
         block.heads = c.heads;
         block.head_dim = c.head_dim;
+        block.use_flash_attention = c.use_flash_attention;
         block.norm1 = load_decoder_layer_norm(*weights->store, source, prefix + ".norm1", hidden);
-        block.attn_q = load_decoder_linear(*weights->store, source, prefix + ".attn1.to_q", inner, hidden, false, weight_storage_type);
-        block.attn_k = load_decoder_linear(*weights->store, source, prefix + ".attn1.to_k", inner, hidden, false, weight_storage_type);
-        block.attn_v = load_decoder_linear(*weights->store, source, prefix + ".attn1.to_v", inner, hidden, false, weight_storage_type);
-        block.attn_out = load_decoder_linear(*weights->store, source, prefix + ".attn1.to_out.0", hidden, inner, true, weight_storage_type);
+        block.attn_q = load_decoder_linear(*weights->store, source, prefix + ".attn1.to_q", inner, hidden, false, weight_storage_type, options);
+        block.attn_k = load_decoder_linear(*weights->store, source, prefix + ".attn1.to_k", inner, hidden, false, weight_storage_type, options);
+        block.attn_v = load_decoder_linear(*weights->store, source, prefix + ".attn1.to_v", inner, hidden, false, weight_storage_type, options);
+        block.attn_out = load_decoder_linear(*weights->store, source, prefix + ".attn1.to_out.0", hidden, inner, true, weight_storage_type, options);
         block.norm3 = load_decoder_layer_norm(*weights->store, source, prefix + ".norm3", hidden);
-        block.ff_proj_in = load_decoder_linear(*weights->store, source, prefix + ".ff.net.0.proj", c.feed_forward_size, hidden, true, weight_storage_type);
-        block.ff_proj_out = load_decoder_linear(*weights->store, source, prefix + ".ff.net.2", hidden, c.feed_forward_size, true, weight_storage_type);
+        block.ff_proj_in = load_decoder_linear(*weights->store, source, prefix + ".ff.net.0.proj", c.feed_forward_size, hidden, true, weight_storage_type, options);
+        block.ff_proj_out = load_decoder_linear(*weights->store, source, prefix + ".ff.net.2", hidden, c.feed_forward_size, true, weight_storage_type, options);
         return block;
     };
 
     weights->time_mlp_1 =
-        load_decoder_linear(*weights->store, source, estimator + "time_mlp.linear_1", c.time_hidden_size, c.time_embedding_size, true, weight_storage_type);
+        load_decoder_linear(*weights->store, source, estimator + "time_mlp.linear_1", c.time_hidden_size, c.time_embedding_size, true, weight_storage_type, options);
     weights->time_mlp_2 =
-        load_decoder_linear(*weights->store, source, estimator + "time_mlp.linear_2", c.time_hidden_size, c.time_hidden_size, true, weight_storage_type);
+        load_decoder_linear(*weights->store, source, estimator + "time_mlp.linear_2", c.time_hidden_size, c.time_hidden_size, true, weight_storage_type, options);
 
     weights->down_blocks.resize(1);
     weights->down_blocks[0].resnet = load_resnet(estimator + "down_blocks.0.0", 4 * mel, hidden);
@@ -2175,7 +2241,7 @@ std::shared_ptr<const S3FlowDecoderWeights> load_s3_flow_decoder_weights(
         weights->down_blocks[0].transformers.push_back(load_transformer(estimator + "down_blocks.0.1." + std::to_string(i)));
     }
     weights->down_blocks[0].downsample =
-        load_decoder_conv1d(*weights->store, source, estimator + "down_blocks.0.2", hidden, hidden, 3, 1, true, weight_storage_type);
+        load_decoder_conv1d(*weights->store, source, estimator + "down_blocks.0.2", hidden, hidden, 3, 1, true, weight_storage_type, options);
 
     weights->mid_blocks.resize(c.middle_blocks);
     for (int64_t block_index = 0; block_index < c.middle_blocks; ++block_index) {
@@ -2193,15 +2259,15 @@ std::shared_ptr<const S3FlowDecoderWeights> load_s3_flow_decoder_weights(
         weights->up_blocks[0].transformers.push_back(load_transformer(estimator + "up_blocks.0.1." + std::to_string(i)));
     }
     weights->up_blocks[0].upsample =
-        load_decoder_conv1d(*weights->store, source, estimator + "up_blocks.0.2", hidden, hidden, 3, 1, true, weight_storage_type);
+        load_decoder_conv1d(*weights->store, source, estimator + "up_blocks.0.2", hidden, hidden, 3, 1, true, weight_storage_type, options);
 
     weights->final_block = load_causal_block(estimator + "final_block", hidden, hidden);
-    weights->final_proj = load_decoder_conv1d(*weights->store, source, estimator + "final_proj", mel, hidden, 1, 1, true, weight_storage_type);
+    weights->final_proj = load_decoder_conv1d(*weights->store, source, estimator + "final_proj", mel, hidden, 1, 1, true, weight_storage_type, options);
 
     if (c.variant == S3FlowVariant::MeanFlow) {
         weights->meanflow = true;
         weights->time_embed_mixer = load_decoder_linear(
-            *weights->store, source, estimator + "time_embed_mixer", c.time_hidden_size, 2 * c.time_hidden_size, false, weight_storage_type);
+            *weights->store, source, estimator + "time_embed_mixer", c.time_hidden_size, 2 * c.time_hidden_size, false, weight_storage_type, options);
     }
 
     weights->store->upload();
@@ -2470,9 +2536,10 @@ std::vector<float> make_zero_padded_conditions_bct(
 
 engine::core::TensorValue linear_rows_graph(
     engine::core::ModuleBuildContext & ctx,
-    const engine::core::TensorValue & input,
+    const engine::core::TensorValue & untransformed_input,
     const S3FlowEncoderWeights::LinearWeights & weights) {
-    auto projected = engine::core::wrap_tensor(
+    const auto input = weights.operation ? untransformed_input : transform_flow_input(ctx, untransformed_input, weights);
+    auto projected = weights.operation ? weights.operation(ctx, input) : engine::core::wrap_tensor(
         ggml_mul_mat(ctx.ggml, weights.weight_tensor.tensor, contiguous(ctx, input).tensor),
         engine::core::TensorShape::from_dims({input.shape.dims[0], weights.out_features}),
         GGML_TYPE_F32);
@@ -2957,6 +3024,10 @@ struct S3GenRuntime::Impl {
          const core::ExecutionContext & context, const S3GenConfig & config,
          const S3GenRuntimeOptions & options, const S3GenWeightBinding & binding)
         : execution(context), cache(context.config()) {
+        if (options.flow_embedding_storage_type != assets::TensorStorageType::F16 &&
+            options.flow_embedding_storage_type != assets::TensorStorageType::F32) {
+            throw std::runtime_error("S3 flow embedding storage must be F16 or F32");
+        }
         if (config.encoder.heads <= 0 || config.encoder.hidden_size <= 0 ||
             config.encoder.hidden_size % config.encoder.heads != 0 ||
             config.encoder.hidden_size % 2 != 0 || config.encoder.upsample_factor <= 0 ||
@@ -2972,8 +3043,8 @@ struct S3GenRuntime::Impl {
             config.vocoder.in_channels != config.mel_channels) {
             throw std::runtime_error("Invalid S3Gen architecture configuration");
         }
-        encoder = load_s3_flow_encoder_weights(*source, context, config, binding.flow_prefix, options.weight_storage_type);
-        decoder = load_s3_flow_decoder_weights(*source, context, config, binding.flow_prefix, options.weight_storage_type);
+        encoder = load_s3_flow_encoder_weights(*source, context, config, binding.flow_prefix, options.weight_storage_type, options);
+        decoder = load_s3_flow_decoder_weights(*source, context, config, binding.flow_prefix, options.weight_storage_type, options);
         auto vocoder_config = config.vocoder;
         vocoder_config.weight_storage_type = options.weight_storage_type;
         vocoder_config.tensor_prefix = binding.vocoder_prefix;

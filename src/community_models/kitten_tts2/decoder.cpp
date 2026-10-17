@@ -1,23 +1,29 @@
 #include "engine/community_models/kitten_tts2/decoder.h"
+#include "engine/community_models/kitten_tts2/student_decoder.h"
 #include "engine/framework/codecs/s3gen_runtime.h"
 #include "engine/models/chatterbox/components.h"
 
+#include "engine/framework/debug/trace.h"
 #include <cmath>
 #include <stdexcept>
 
 namespace engine::community_models::kitten_tts2 {
 namespace s3 = engine::codecs::s3gen;
 struct WaveformDecoder::Impl {
+    DecoderVariant variant;
     s3::S3GenRuntime runtime;
-    Impl(std::shared_ptr<const assets::TensorSource> source, const core::ExecutionContext & context)
-        : runtime(std::move(source), context, [] {
+    Impl(std::shared_ptr<const assets::TensorSource> source, const core::ExecutionContext & context, DecoderVariant selected)
+        : variant(selected), runtime(selected == DecoderVariant::StudentW4 ? make_student_tensor_source(source) : source,
+          context, selected == DecoderVariant::StudentW4 ? student_decoder_config() : [] {
               s3::S3GenConfig config;
               config.decoder.variant = s3::S3FlowVariant::MeanFlow;
               return config;
-          }(), {assets::TensorStorageType::F32}) {}
+          }(), selected == DecoderVariant::StudentW4 ? student_decoder_options(source, context.backend_type()) :
+          s3::S3GenRuntimeOptions{assets::TensorStorageType::F32}) {}
 };
 WaveformDecoder::WaveformDecoder(std::shared_ptr<const assets::TensorSource> source,
-    const core::ExecutionContext & execution) : impl_(std::make_unique<Impl>(std::move(source), execution)) {}
+    const core::ExecutionContext & execution, DecoderVariant variant)
+    : impl_(std::make_unique<Impl>(std::move(source), execution, variant)) {}
 WaveformDecoder::~WaveformDecoder() = default;
 
 std::vector<float> WaveformDecoder::decode(const std::vector<int32_t> & codes,
@@ -36,8 +42,13 @@ std::vector<float> WaveformDecoder::decode(const std::vector<int32_t> & codes,
     ref.embedding_size = 192;
     auto tokens = codes;
     tokens.insert(tokens.end(), 3, 4299); // Upstream S3 lookahead preserves the final syllable.
+    s3::S3GenTimingBreakdown timing;
     auto result = impl_->runtime.synthesize(
-        ref, tokens, tokens.size(), 2, 0.0f, false, {}, seed, seed);
+        ref, tokens, tokens.size(), impl_->variant == DecoderVariant::StudentW4 ? 1 : 2, 0.0f, false, {}, seed, seed, &timing);
+    debug::timing_log_scalar("kitten_tts2.token2mel_ms", timing.token2mel_ms);
+    debug::timing_log_scalar("kitten_tts2.flow_encoder_ms", timing.token2mel_encoder_ms);
+    debug::timing_log_scalar("kitten_tts2.flow_decoder_ms", timing.token2mel_cfm_ms);
+    debug::timing_log_scalar("kitten_tts2.vocoder_ms", timing.vocoder_ms);
     models::chatterbox::apply_s3_trim_fade(result.waveform, 24000);
     if (result.waveform.empty()) throw std::runtime_error("Kitten decoder returned empty audio");
     for (float value : result.waveform)

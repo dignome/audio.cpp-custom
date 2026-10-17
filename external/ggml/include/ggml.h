@@ -437,7 +437,8 @@ extern "C" {
         // would silently misread GGUF files that still carry the old type.
         GGML_TYPE_I8_S    = 42,
         GGML_TYPE_I2_S    = 43,
-        GGML_TYPE_COUNT   = 44,
+        GGML_TYPE_TQ2_1   = 44, // experimental Kitten format; IDs 42/43 belong to VibeASR
+        GGML_TYPE_COUNT   = 45,
     };
 
     // precision

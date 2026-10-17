@@ -1,6 +1,10 @@
 
 #pragma once
 
+#if defined(GGML_CPU_GENERIC) || !(defined(__x86_64__) || defined(__i386__) || defined(_M_IX86) || defined(_M_X64))
+#define ggml_vec_dot_tq2_1_q8_K_generic ggml_vec_dot_tq2_1_q8_K
+#endif
+
 // Rename `_generic` functions if no native implementation is available.
 // This effectively selects the generic implementation.
 

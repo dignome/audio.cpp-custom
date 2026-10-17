@@ -9,9 +9,9 @@ Python, LibTorch, TorchScript, and ONNX Runtime are not runtime dependencies.
 
 The family is experimental; a compatible community GGUF is available below.
 CPU and NVIDIA CUDA are validated. Other GPU backends, streaming, automatic
-reference transcription, the upstream text normalizer, and the smaller
-`student_w4`/`student_w8` decoders are not implemented or validated by this port.
-The full default decoder is used.
+reference transcription, the upstream text normalizer, and `student_w8` are not
+implemented or validated by this port. The TQ2_1 CPU package uses `student_w4`
+with INT8 linear execution; the other packages use the full default decoder.
 
 ## Build
 
@@ -23,9 +23,9 @@ This port uses the fixes from [Chatterbox S3 encoder correctness PR #778](https:
 merged before the Kitten integration. Current upstream includes both changes.
 The original Kitten integration also added build registration, documentation
 indexes and the WebUI catalog with its generated bundle. The updated weight
-profiles below update the Kitten implementation, exporter, package metadata, tests,
-documentation and Kitten WebUI entries; shared framework, Chatterbox and ggml code
-are unchanged.
+profiles below include a TQ2_1 CPU type and kernels in GGML, framework type
+registration, and optional S3 projection hooks. The hooks preserve S3 defaults
+and are enabled only by Kitten's student decoder. CUDA uses existing NVFP4 kernels.
 
 ```sh
 cmake -S . -B build-kitten2 -DAUDIOCPP_MODEL_SET=custom \
@@ -70,9 +70,9 @@ minimum for every input or weight type.
 ## Download and preset speech
 
 The ready-to-run [community packages](https://huggingface.co/dignome/kitten_tts2)
-contain the full native decoder, speaker encoders, and all 48 prepared voice
+contain a native decoder, speaker encoders, and all 48 prepared voice
 entries. **Q8 is the default and recommended package** and the initial WebUI
-choice. BF16 and hybrid Q4 are also available; see
+choice. BF16, hybrid Q4, NVFP4 and TQ2_1 CPU are also available; see
 [weight profiles](#updated-weight-profiles).
 
 ```sh
@@ -183,7 +183,9 @@ takes precedence over a preset ID. The server speech endpoint accepts
 Channels are averaged. Native sinc resampling supplies 16 kHz speaker/tokenizer
 inputs and the 24 kHz decoder reference. The identity encoder uses the complete
 clip. Decoder conditioning repeats short clips to at least six seconds and takes
-at most ten seconds, following the upstream default decoder policy.
+at most ten seconds for the default decoder. The student decoder uses up to
+four seconds and 112 decoder prompt tokens. Speaker identity and LM reference
+conditioning still use their existing policies.
 Upstream uses librosa/soxr for some S3 preprocessing, so reference tokens need not
 be byte-identical with this native sinc resampler.
 
@@ -238,10 +240,9 @@ filenames. They can coexist and share the license/NOTICE files. Select the
 chosen GGUF path in the CLI/server. Each package also downloads `LICENSE`, `NOTICE`,
 `native/LICENSE`, `speaker/LICENSE`, and `SHA256SUMS` from the same repository.
 
-Every profile uses the existing default S3 MeanFlow decoder, reference encoders
-and multilingual voice conditioning. No shared framework, S3 or ggml changes
-are required. The student decoders and upstream TL2/emb4 format are not part of
-these profiles.
+The BF16, Q8 and Q4 profiles retain the existing default S3 MeanFlow decoder,
+reference encoders and multilingual voice conditioning. They do not use the
+student decoder or upstream TL2/emb4 embedding format.
 
 The Q8 and Q4 body matrices preserve the updated BF16 checkpoint's ternary
 values exactly in standard GGML blocks. Q4 is a mixed-precision export: its
@@ -280,6 +281,71 @@ python tools/community_models/prepare_kitten_tts2_gguf.py \
 
 Use `--s3gen` and `--s3-license` when the original default decoder assets are
 stored separately.
+
+## NVFP4 and TQ2_1 CPU packages
+
+| WebUI choice | Package ID | Download filename | Decoder |
+| --- | --- | --- | --- |
+| GGUF NVFP4 | `kitten_tts2_nvfp4` | [kitten-tts2-nvfp4-multilingual.gguf](https://huggingface.co/dignome/kitten_tts2/resolve/main/kitten-tts2-nvfp4-multilingual.gguf) | Default MeanFlow |
+| GGUF TQ2_1 (CPU) | `kitten_tts2_tq2_1` | [kitten-tts2-tq2_1-student-w4-multilingual.gguf](https://huggingface.co/dignome/kitten_tts2/resolve/main/kitten-tts2-tq2_1-student-w4-multilingual.gguf) | Student W4, INT8 linears on CPU |
+
+These packages install into `models/kitten-tts2-nvfp4/` and
+`models/kitten-tts2-tq2_1/` respectively. Both retain the Q8_0 embedding, BF16
+norms and speaker projections, reference encoders and 48 prepared multilingual
+voice entries. Leave `kitten_tts2.weight_type` unset or `native`.
+
+For WebUI downloads, configure with `-DAUDIOCPP_BUILD_NATIVE_MODEL_MANAGER=ON`
+(or `-NativeModelManager` in `scripts/build_windows.ps1`) and start the server
+with `--ui --ui-management`. Regenerate the frontend before building the server:
+
+```sh
+npm --prefix webui/native ci
+npm --prefix webui/native run build
+cmake --build build-kitten2 --config Release --target audiocpp_server
+```
+
+NVFP4 stores all 196 LM body projections in GGML NVFP4 (type 40), uses existing
+CUDA kernels, and does not apply the Q4 package's BF16 down-projection fallback.
+It is about 2.27 GB. Testing on an RTX 4060 Ti does not establish performance
+on other NVIDIA generations.
+
+TQ2_1 preserves the supplied BF16 ternary body values exactly in 68-byte blocks
+of 256 weights. It uses **type ID 44 in this branch**; Kitten's own ID 43 conflicts
+with audio.cpp's I2_S. The complete student bundle is about 1.41 GB and requires
+this branch's CPU support. Select `--backend cpu`; GPU loading returns a clear
+error. CPU dot products have AVX2 and scalar implementations. The 474 student
+matrices remain packed W4 on disk. At load time, 426 linears expand to INT8;
+48 convolutions use F32. INT8 is selected automatically on CPU. Preset speech
+and reference-audio cloning both use the student decoder.
+
+To export from the upstream assets, build `kitten_tts2_quant_bridge` with
+`-DENGINE_BUILD_MODEL_TESTS=ON` in addition to the converter and voice preparer.
+The shared library is an offline conversion helper, not an inference dependency.
+Use `.dll` on Windows or `libkitten_tts2_quant_bridge.so` on Linux:
+
+```sh
+python tools/community_models/prepare_kitten_tts2_gguf.py \
+  --model /absolute/path/kitten-tts-2 --converter build-kitten2/bin/audiocpp_gguf \
+  --ggml-library build-kitten2/bin/libkitten_tts2_quant_bridge.so \
+  --type nvfp4 --output kitten-tts2-nvfp4-multilingual.gguf
+
+python tools/community_models/prepare_kitten_tts2_gguf.py \
+  --model /absolute/path/kitten-tts-2 --converter build-kitten2/bin/audiocpp_gguf \
+  --ggml-library build-kitten2/bin/libkitten_tts2_quant_bridge.so \
+  --type tq2_1 --output kitten-tts2-tq2_1-student-w4-multilingual.gguf
+```
+
+TQ2_1 uses `lm/model.safetensors`, `decoders/student_w4.pt`, and
+`cpp/student_w4/voices.json`. Missing presets are prepared with the student
+reference policy. `--prepared-voices` must match the selected decoder. Both
+exports still need the original S3/HiFT/tokenizer assets (`--s3gen`) and license
+(`--s3-license`) if absent from the model checkout. The exporter validates
+TQ2_1 body reconstruction exactly and preserves student codes and scale divisors.
+
+The TQ2_1 reference codec and CPU dot product are adapted from
+KittenML/kitten-tts-2-cpp commit `1ce0bb5`, under the MIT license retained in
+`external/ggml/LICENSE`. See [quantization validation](../../tests/kitten_tts2/quantization.md)
+for checks and limitations.
 
 ## Self-contained GGUF
 

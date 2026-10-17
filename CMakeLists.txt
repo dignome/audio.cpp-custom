@@ -1078,6 +1078,9 @@ audiocpp_add_model(kitten_tts2
     SOURCES
         src/community_models/kitten_tts2/session.cpp
         src/community_models/kitten_tts2/decoder.cpp
+        src/community_models/kitten_tts2/student_decoder.cpp
+        src/community_models/kitten_tts2/student_int8.cpp
+        src/community_models/kitten_tts2/student_int8_avx2.cpp
         src/community_models/kitten_tts2/speaker.cpp
     INCLUDES engine/community_models/kitten_tts2/session.h
     LOADERS engine::community_models::kitten_tts2::make_kitten_tts2_loader
@@ -3100,6 +3103,20 @@ if (ENGINE_BUILD_TESTS OR ENGINE_BUILD_EXTENDED_TESTS OR ENGINE_BUILD_MODEL_TEST
         add_executable(audiocpp_kitten_tts2_prepare_voices tools/community_models/prepare_kitten_tts2_voices.cpp)
         audiocpp_use_utf8_codepage(audiocpp_kitten_tts2_prepare_voices)
         target_link_libraries(audiocpp_kitten_tts2_prepare_voices PRIVATE engine_runtime)
+        add_executable(kitten_tts2_student_probe tests/kitten_tts2/student_probe.cpp)
+        target_link_libraries(kitten_tts2_student_probe PRIVATE engine_runtime)
+        add_executable(kitten_tts2_student_int8_probe tests/kitten_tts2/student_int8_probe.cpp)
+        target_link_libraries(kitten_tts2_student_int8_probe PRIVATE engine_runtime)
+        add_executable(s3gen_input_transform_probe tests/s3gen/input_transform_probe.cpp)
+        target_link_libraries(s3gen_input_transform_probe PRIVATE engine_runtime ggml)
+        add_executable(kitten_tts2_ternary_probe tests/kitten_tts2/ternary_probe.cpp)
+        target_link_libraries(kitten_tts2_ternary_probe PRIVATE ggml ggml-cpu)
+        add_test(NAME kitten_tts2_ternary_probe COMMAND kitten_tts2_ternary_probe)
+        add_library(kitten_tts2_quant_bridge SHARED tests/kitten_tts2/quant_bridge.cpp)
+        target_link_libraries(kitten_tts2_quant_bridge PRIVATE ggml-base)
+        if(NOT WIN32)
+            set_target_properties(ggml-base PROPERTIES POSITION_INDEPENDENT_CODE ON)
+        endif()
         add_executable(kitten_tts2_session_probe tests/kitten_tts2/session_probe.cpp)
         audiocpp_use_utf8_codepage(kitten_tts2_session_probe)
         target_link_libraries(kitten_tts2_session_probe PRIVATE engine_runtime)
@@ -4808,5 +4825,14 @@ if (ENGINE_BUILD_EXAMPLES)
     target_link_libraries(model_spec_download_demo PRIVATE engine_runtime ggml)
     if (ENGINE_ENABLE_OPENMP)
         target_link_libraries(model_spec_download_demo PRIVATE OpenMP::OpenMP_CXX)
+    endif()
+endif()
+
+# Student INT8 kernel, guarded by runtime AVX2 detection.
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(AMD64|amd64|x86_64|X86_64|x64)$")
+    if(MSVC)
+        set_source_files_properties(src/community_models/kitten_tts2/student_int8_avx2.cpp PROPERTIES COMPILE_OPTIONS "/arch:AVX2")
+    else()
+        set_source_files_properties(src/community_models/kitten_tts2/student_int8_avx2.cpp PROPERTIES COMPILE_OPTIONS "-mavx2")
     endif()
 endif()

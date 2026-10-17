@@ -128,7 +128,7 @@ function relatedExposeAllGgufPackages(entry: CatalogEntry): PackageEntry[] {
   const family = packages.filter((candidate) =>
     candidate.family === entry.family && candidate.format === 'gguf');
   if (!family.length) return [];
-  if (entry.family === 'sanotts') return family;
+  if (entry.family === 'sanotts' || entry.family === 'kitten_tts2') return family;
   if (!entry.download_id) return family;
   const exact = family.find((candidate) => candidate.id === entry.download_id);
   if (!exact) return relatedPackages(entry);
@@ -147,6 +147,7 @@ function exposedPackageRank(entry: PackageEntry, selectedId?: string): number {
 }
 
 function packageLabel(entry: PackageEntry): string {
+  if (entry.family === 'kitten_tts2' && entry.precision === 'tq2_1') return 'GGUF TQ2_1 (CPU)';
   if (entry.family === 'sanotts') {
     if (entry.id.includes('_heart_nano_')) return 'Heart Nano';
     if (entry.id.includes('_heart_')) return 'Heart';
