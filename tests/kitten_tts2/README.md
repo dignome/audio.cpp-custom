@@ -29,6 +29,22 @@ python tools/check_loader_catalog_sync.py
 build-kitten2/bin/model_spec_system_test
 ```
 
+## Optional text normalization
+
+Build and run `kitten_tts2_text_test` with `ENGINE_BUILD_MODEL_TESTS=ON`.
+Its normalization cases cover explicit `en`/`zh`, unchanged empty/auto/other
+language inputs, shared English number normalization, Chinese numbers and
+dates, expression markup and placeholder collisions, UTF-8 validation, expanded
+chunk budgets, and composition with `sentence_pauses`.
+
+For session checks, use a fixed voice, seed, preset, token budget and chunk size.
+Compare `normalize_text=true` plus `language=en` with manually expanded English
+text and normalization disabled; do the same for `zh`. Check that an omitted
+option matches `false`, that empty/auto/other languages keep the original text,
+and that a per-request false override wins over a server true default. These
+checks should use identical waveforms for equivalent model inputs. Include a
+request combining expression tags and sentence pauses.
+
 ## Optional sentence pauses
 
 This option can help when the model ends speech after an early sentence and

@@ -201,7 +201,17 @@ public:
         auto size = text::parse_text_chunk_size_override(request.options).value_or(380);
         if (size < 32 || size > 1000) throw std::runtime_error("Kitten text_chunk_size must be between 32 and 1000");
         auto mode = text::parse_text_chunk_mode_override(request.options).value_or(text::TextChunkMode::TagAware);
-        const auto chunks = runtime::chunk_text_request(request, size, mode);
+        const auto normalization = runtime::find_option(request.options, {"normalize_text"});
+        const bool normalize = normalization && runtime::parse_bool_option(*normalization, "normalize_text");
+        // Normalize only the target text, before the framework measures chunks.
+        // Reference transcripts and cached voice conditioning stay unchanged.
+        const auto chunks = [&] {
+            if (!normalize) return runtime::chunk_text_request(request, size, mode);
+            auto text_request = request;
+            text_request.text_input->text = normalize_prompt_text(
+                request.text_input->text, request.text_input->language);
+            return runtime::chunk_text_request(text_request, size, mode);
+        }();
         const auto pauses = runtime::find_option(request.options, {"sentence_pauses"});
         const bool add_pauses = pauses && runtime::parse_bool_option(*pauses, "sentence_pauses");
         runtime::AudioBuffer audio{24000, 1, {}};

@@ -168,6 +168,13 @@
         "description": "Framework long-form text chunking mode."
       },
       {
+        "name": "normalize_text",
+        "type": "bool",
+        "required": false,
+        "default": false,
+        "description": "Normalize target text before chunking using audio.cpp's shared helpers only when the request language is explicitly en or zh. Empty/auto and other languages are unchanged. Preserves expression markup. Disabled by default."
+      },
+      {
         "name": "sentence_pauses",
         "type": "bool",
         "required": false,

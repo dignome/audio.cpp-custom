@@ -153,16 +153,60 @@ text in `input`. A reference clip and transcript in the target language can also
 be supplied for cloning. There is no separate language switch: the voice
 reference supplies the accent and pronunciation context.
 
-Text reaches the original Qwen tokenizer without English normalization, matching
-upstream's recommendation to use `normalize=False` for other languages. Write
-numbers, dates and abbreviations as spoken words in the target language.
-The shared chunker preserves Unicode codepoints and supports CJK punctuation.
+Text reaches the original Qwen tokenizer without written-to-spoken normalization
+by default. Optional English/Chinese preprocessing is described below. For other
+languages, write numbers, dates and abbreviations as spoken words in the target
+language. The shared chunker preserves Unicode codepoints and supports CJK punctuation.
 
 Upstream's README advertises 20 languages, but its published voice index provides
 presets for English and the nine languages above. The remaining ten languages
 have no shipped language presets in this snapshot and are not validated here.
 Generation and tokenization checks do not establish pronunciation quality;
 see the validation record for exactly what was exercised.
+
+## Optional text normalization
+
+`normalize_text` defaults to `false`. When enabled, it uses audio.cpp's shared
+English or Chinese normalizer **only if the request language is explicitly
+`en` or `zh`**. An empty language, `auto`, or any other language leaves the input
+unchanged. There is no automatic language detector in this preprocessing step.
+The language selects normalization rules; voice/reference conditioning still
+controls the model's pronunciation context.
+
+```sh
+audiocpp_cli --family kitten_tts2 --model models/kitten-tts2-v2/kitten-tts2-q8-v2-multilingual.gguf \
+  --backend cpu --task tts --voice-id Bruno --language en \
+  --text 'I have 2 cats.' --request-option normalize_text=true --out normalized.wav
+```
+
+In the WebUI, set Language to `en` or `zh` and put
+`{"normalize_text": true}` in Additional options. The equivalent speech API body is:
+
+```json
+{
+  "model": "kitten_tts2",
+  "input": "I have 2 cats.",
+  "voice": "Bruno",
+  "language": "en",
+  "options": {"normalize_text": true}
+}
+```
+
+A server model can set `"normalize_text": true` in `default_request_options`;
+each request still needs an explicit `en` or `zh` language. A per-request
+`false` disables it. The API `model` value must match the configured model ID.
+
+English uses `normalize_english_text` with its default settings; for example,
+`I have 2 cats.` becomes `I have two cats.` Chinese uses the shared IndexTTS
+Chinese normalization rules. Their coverage and readings can differ from
+KittenML's separate grammar-based normalizer.
+
+Recognized emotion/event tags and complete `(((emphasis)))` spans, including
+their contents, are preserved verbatim. Target text is normalized before
+framework chunking, so expanded words count toward the chunk budget. Optional
+`sentence_pauses` runs afterward on each chunk. Reference transcripts and voice
+conditioning are unchanged. No model conversion or new runtime dependency is
+required.
 
 ## Voice cloning
 
@@ -208,7 +252,8 @@ differ from PyTorch CPU; equal seeds do not promise Python-identical waveforms.
 Text defaults to 380-codepoint chunks in `tag_aware` mode. Each chunk reuses the
 reference prefix and starts fresh target generation. Joins trim edge silence,
 apply short fades, and insert 160 ms gaps. Expression tags reach the model
-verbatim and enable its emotion prefix. Expand numbers/abbreviations when needed.
+verbatim and enable its emotion prefix. With normalization disabled, expand
+numbers/abbreviations when needed.
 
 Kitten TTS 2 can sometimes end speech after an early sentence, leaving later
 sentences in the same chunk unspoken. To help reduce this early termination,
@@ -216,7 +261,7 @@ enable `--request-option sentence_pauses=true`
 (API `"options": {"sentence_pauses": true}`). Adding `<pause>` between sentences
 can encourage the model to continue speaking the remaining text.
 
-The framework first chunks the original text normally. Kitten then inserts
+The framework first chunks the text (after normalization, when enabled). Kitten then inserts
 `<pause>` after recognized sentence-ending ASCII periods (`.`) between
 sentences within each chunk, preserving punctuation and original text. Common
 English abbreviations, decimal points, ellipses and punctuation inside markup

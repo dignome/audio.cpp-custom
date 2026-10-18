@@ -1,9 +1,12 @@
 #include "engine/community_models/kitten_tts2/text.h"
 
 #include "engine/framework/text/utf8.h"
+#include "engine/framework/text/chinese_normalization.h"
+#include "engine/framework/text/text_normalization.h"
 
 #include <algorithm>
 #include <cctype>
+#include <regex>
 #include <utility>
 #include <vector>
 
@@ -66,6 +69,42 @@ std::vector<SentenceRange> sentence_ranges(const std::string & value) {
     return result;
 }
 }  // namespace
+
+std::string normalize_prompt_text(std::string_view input, std::string_view language) {
+    text::utf8_codepoint_count(input, "Kitten normalization text");
+    std::string selected = text::collapse_ascii_whitespace(language);
+    std::transform(selected.begin(), selected.end(), selected.begin(),
+        [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    if (selected != "en" && selected != "zh") return std::string(input);
+
+    // Use digit-free, collision-free placeholders: both shared normalizers
+    // expand digits, including digits inside naive numbered placeholders.
+    const std::string source(input);
+    std::string prefix = u8"\uE000";
+    while (source.find(prefix) != std::string::npos) prefix += u8"\uE000";
+    static const std::regex markup(
+        R"(\[(mundane|nervous|tender|angry|excited|stern|sad|contemplative|surprised|joyful)\]|<(pause|sigh|gasp|laugh|giggle|sob|scoff|growl|um|gulp)>|\(\(\([^()\r\n]*\)\)\))",
+        std::regex::icase);
+    std::vector<std::pair<std::string, std::string>> saved;
+    std::string protected_text;
+    size_t copied = 0;
+    for (std::sregex_iterator it(source.begin(), source.end(), markup), end; it != end; ++it) {
+        std::string key;
+        size_t index = saved.size();
+        do { key += static_cast<char>('a' + index % 26); index /= 26; } while (index);
+        key = prefix + key + u8"\uE001";
+        protected_text.append(source, copied, static_cast<size_t>(it->position()) - copied);
+        protected_text += key;
+        saved.emplace_back(key, it->str());
+        copied = static_cast<size_t>(it->position() + it->length());
+    }
+    protected_text.append(source, copied, std::string::npos);
+    auto result = selected == "zh"
+        ? text::normalize_chinese_text(protected_text)
+        : text::normalize_english_text(protected_text);
+    for (const auto & [key, value] : saved) result = text::replace_all(std::move(result), key, value);
+    return result;
+}
 
 std::string insert_sentence_pauses(std::string_view input) {
     text::utf8_codepoint_count(input, "Kitten sentence text");
