@@ -1,3 +1,12 @@
+Remember to generate the web ui prior to building:<br /><br />
+npm --prefix webui/native ci<br />
+npm --prefix webui/native run build
+
+Additional options specific to Kitten TTS 2 fork:
+
+{"normalize_text":true} - use audio.cpp text normalization.  You must also specify the language as en or zh to enable normalizaion.
+{"sentence_pauses": true} - this inserts <pause> after recognized sentence-ending periods between sentences within each chunk.  LM model has been found to sometimes skip sentences and this has been found to be a possible work around.
+
 # audio.cpp
 <a href="https://trendshift.io/repositories/64983?utm_source=repository-badge&amp;utm_medium=badge&amp;utm_campaign=badge-repository-64983" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/repositories/64983" alt="0xShug0%2Faudio.cpp | Trendshift" width="250" height="55"/></a>
 [![0xShug0/audio.cpp | Trendshift](https://trendshift.io/api/badge/trendshift/repositories/64983/daily?language=C%2B%2B)](https://trendshift.io/repositories/64983?utm_source=trendshift-badge&utm_medium=badge&utm_campaign=badge-trendshift-64983)
