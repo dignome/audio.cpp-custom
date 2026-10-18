@@ -210,6 +210,32 @@ reference prefix and starts fresh target generation. Joins trim edge silence,
 apply short fades, and insert 160 ms gaps. Expression tags reach the model
 verbatim and enable its emotion prefix. Expand numbers/abbreviations when needed.
 
+To add pause markup after sentence-ending periods, use
+`--request-option sentence_pauses=true`
+(API `"options": {"sentence_pauses": true}`). The framework first chunks
+the original text normally. Kitten then inserts
+`<pause>` after recognized sentence-ending ASCII periods (`.`) between
+sentences within each chunk, preserving punctuation and original text. Common
+English abbreviations, decimal points, ellipses and punctuation inside markup
+are skipped. Closing quotes or brackets stay before the inserted pause.
+Existing pause tags are not duplicated, and no pause is added at the end of a
+chunk. Other punctuation (`!`, `?`, `。`) and bare newlines are unchanged.
+For example, `Hello. Welcome.` becomes `Hello. <pause> Welcome.`. Added markup
+does not count toward the original text chunk budget. This enables the model's
+expression conditioning and can change pacing or intonation, rather than
+inserting a fixed duration of silence. It does not guarantee complete speech.
+The default is `false`. Enable it for a server model with:
+
+```json
+"default_request_options": {
+  "sentence_pauses": true
+}
+```
+
+This applies to CLI, API, WebUI requests that use those server defaults, and
+reference-voice cloning. No GGUF regeneration is needed. Request options can
+override the server defaults.
+
 LM tensors retain their stored types by default. An explicit
 `--session-option kitten_tts2.weight_type=...` changes projection storage only;
 the embedding and tied output head retain their stored type. The decoder and

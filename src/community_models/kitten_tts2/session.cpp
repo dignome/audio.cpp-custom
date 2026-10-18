@@ -17,6 +17,7 @@
 #include "engine/framework/runtime/spec_backed_model.h"
 #include "engine/framework/sampling/hf_sampler.h"
 #include "engine/framework/text/chunking.h"
+#include "engine/community_models/kitten_tts2/text.h"
 #include "engine/framework/tokenizers/qwen_bpe_bundle.h"
 
 #include <algorithm>
@@ -201,10 +202,13 @@ public:
         if (size < 32 || size > 1000) throw std::runtime_error("Kitten text_chunk_size must be between 32 and 1000");
         auto mode = text::parse_text_chunk_mode_override(request.options).value_or(text::TextChunkMode::TagAware);
         const auto chunks = runtime::chunk_text_request(request, size, mode);
+        const auto pauses = runtime::find_option(request.options, {"sentence_pauses"});
+        const bool add_pauses = pauses && runtime::parse_bool_option(*pauses, "sentence_pauses");
         runtime::AudioBuffer audio{24000, 1, {}};
         std::mt19937 rng(static_cast<uint32_t>(seed));
         for (size_t i = 0; i < chunks.size(); ++i) {
-            auto codes = generate(chunks[i].text_input->text, voice, request.options, rng);
+            const auto & text = chunks[i].text_input->text;
+            auto codes = generate(add_pauses ? insert_sentence_pauses(text) : text, voice, request.options, rng);
             const auto waveform_start = std::chrono::steady_clock::now();
             auto samples = waveform_->decode(codes, voice.prompt_tokens, voice.mel, voice.embedding,
                 seed + i);

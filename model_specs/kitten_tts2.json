@@ -168,6 +168,13 @@
         "description": "Framework long-form text chunking mode."
       },
       {
+        "name": "sentence_pauses",
+        "type": "bool",
+        "required": false,
+        "default": false,
+        "description": "Insert <pause> after sentence-ending periods (.) between sentences within each text chunk. Preserves punctuation; skips common abbreviations, decimals and existing pauses. May change delivery; does not guarantee complete speech."
+      },
+      {
         "name": "reference_text",
         "type": "string",
         "required": false,

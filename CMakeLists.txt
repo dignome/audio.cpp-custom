@@ -1083,6 +1083,7 @@ audiocpp_add_model(kitten_tts2
         src/community_models/kitten_tts2/student_int8.cpp
         src/community_models/kitten_tts2/student_int8_avx2.cpp
         src/community_models/kitten_tts2/speaker.cpp
+        src/community_models/kitten_tts2/text.cpp
     INCLUDES engine/community_models/kitten_tts2/session.h
     LOADERS engine::community_models::kitten_tts2::make_kitten_tts2_loader
     DEPENDS chatterbox)
@@ -3128,6 +3129,10 @@ if (ENGINE_BUILD_TESTS OR ENGINE_BUILD_EXTENDED_TESTS OR ENGINE_BUILD_MODEL_TEST
         add_executable(kitten_tts2_components_probe tests/kitten_tts2/components_probe.cpp)
         audiocpp_use_utf8_codepage(kitten_tts2_components_probe)
         target_link_libraries(kitten_tts2_components_probe PRIVATE engine_runtime)
+        add_executable(kitten_tts2_text_test tests/kitten_tts2/text_test.cpp)
+        audiocpp_use_utf8_codepage(kitten_tts2_text_test)
+        target_link_libraries(kitten_tts2_text_test PRIVATE engine_runtime)
+        add_test(NAME kitten_tts2_text_test COMMAND kitten_tts2_text_test)
     endif()
     add_executable(yue2_vae_parity_probe
         tests/yue2/yue2_vae_parity_probe.cpp

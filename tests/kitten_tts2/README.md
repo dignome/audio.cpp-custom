@@ -29,6 +29,23 @@ python tools/check_loader_catalog_sync.py
 build-kitten2/bin/model_spec_system_test
 ```
 
+## Optional sentence pauses
+
+Build and run `kitten_tts2_text_test` with `ENGINE_BUILD_MODEL_TESTS=ON`.
+It needs no GGUF and checks period boundaries, common English abbreviations,
+decimals, ellipses, closing quotes, markup, existing pause tags and UTF-8 input.
+It also checks that other punctuation and bare newlines stay unchanged, no
+trailing pause is added, and the framework chunk count stays the same.
+
+Compare `sentence_pauses=false` and `sentence_pauses=true` with the same
+input, voice, seed, preset, token budget and chunk settings on CPU and CUDA.
+Also compare automatic insertion with manually inserting ` <pause>` after
+internal sentence-ending periods. Enable it in a model's
+`default_request_options`, then check the per-request false override.
+A single sentence must retain its previous output. `<pause>` enables
+expression conditioning and can change pacing; check completeness separately
+from cache invariance. This is a mitigation, not a guarantee of complete speech.
+
 ## Validation assets
 
 For NVFP4, TQ2_1 and the student decoder, see [quantization validation](quantization.md).
