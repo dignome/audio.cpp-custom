@@ -1,5 +1,6 @@
 #include "engine/community_models/kitten_tts2/session.h"
 #include "engine/community_models/kitten_tts2/decoder.h"
+#include "engine/community_models/kitten_tts2/lm_runtime.h"
 #include "engine/community_models/kitten_tts2/speaker.h"
 #include "engine/community_models/kitten_tts2/reference.h"
 #include "engine/framework/audio/conversion.h"
@@ -10,7 +11,6 @@
 #include "engine/framework/io/json.h"
 #include "engine/framework/model_spec/package.h"
 #include "engine/framework/modules/structural_modules.h"
-#include "engine/framework/modules/transformers/causal_decoder_runtime.h"
 #include "engine/framework/modules/weight_binding.h"
 #include "engine/framework/runtime/options.h"
 #include "engine/framework/runtime/session_base.h"
@@ -363,11 +363,8 @@ private:
         const auto head = modules::SliceModule({0, t.speech_end, head_rows}).build(head_build, embedding_);
         if (ggml_backend_view_init(head.tensor) != GGML_STATUS_SUCCESS) throw std::runtime_error("failed to create Kitten speech head");
         weights.lm_head = modules::LinearWeights{head,std::nullopt};
-        modules::CausalDecoderRuntimeConfig runtime_config;
-        runtime_config.trace_name = "kitten_tts2.lm";
-        runtime_config.prefill_graph_arena_bytes = 16 * 1024 * 1024;
-        runtime_config.decode_graph_arena_bytes = 16 * 1024 * 1024;
-        auto & stack = runtime_config.decoder.stack;
+        modules::CausalDecoderConfig decoder_config;
+        auto & stack = decoder_config.stack;
         stack.hidden_size=hidden; stack.intermediate_size=intermediate; stack.layers=layers;
         stack.num_attention_heads=heads; stack.num_key_value_heads=kv_heads; stack.head_dim=dim;
         stack.rms_norm_eps=json::require_f32(c,"rms_norm_eps"); stack.rope_theta=json::require_f32(c,"rope_theta");
@@ -375,8 +372,8 @@ private:
         stack.runtime.attention.prefill_mode=modules::DecoderAttentionMode::FlashGrouped;
         stack.runtime.attention.static_mode=modules::DecoderAttentionMode::FlashGrouped;
         stack.runtime.static_cache.update_mode=modules::DecoderStaticCacheUpdateMode::DirectSetRows;
-        runtime_config.decoder.logits_size=head_rows;
-        lm_=std::make_unique<modules::CausalDecoderRuntime>(execution_context(),runtime_config,std::move(weights));
+        decoder_config.logits_size=head_rows;
+        lm_=std::make_unique<LanguageModelRuntime>(execution_context(),decoder_config,std::move(weights));
         source.release_storage();
     }
     std::vector<float> embed(const std::vector<int32_t> & ids, const Voice & voice) {
@@ -506,7 +503,7 @@ private:
     std::unique_ptr<core::BackendWeightStore> store_;
     std::shared_ptr<ggml_context> head_context_;
     core::TensorValue embedding_;
-    std::unique_ptr<modules::CausalDecoderRuntime> lm_;
+    std::unique_ptr<LanguageModelRuntime> lm_;
     const Voice * last_voice_=nullptr;
 };
 }

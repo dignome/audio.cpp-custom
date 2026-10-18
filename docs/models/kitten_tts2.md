@@ -215,6 +215,11 @@ LM tensors retain their stored types by default. An explicit
 the embedding and tied output head retain their stored type. The decoder and
 reference encoders use F32.
 
+The LM attention window follows the active context instead of the reserved
+cache capacity. This prevents changes to the token budget or a previously
+larger request from unnecessarily changing attention computations. This cache
+behavior applies automatically.
+
 ## Updated weight profiles
 
 Use the `kitten_tts2` model family and leave `kitten_tts2.weight_type` unset

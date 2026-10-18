@@ -33,6 +33,54 @@ build-kitten2/bin/model_spec_system_test
 
 For NVFP4, TQ2_1 and the student decoder, see [quantization validation](quantization.md).
 
+### Cache-size regression
+
+With `-DENGINE_BUILD_MODEL_TESTS=ON`, build and run the model-local cache test:
+
+```sh
+cmake --build build-kitten2 --target kitten_tts2_cache_test
+build-kitten2/bin/kitten_tts2_cache_test --backend cpu
+# For a CUDA-enabled build:
+build-kitten2/bin/kitten_tts2_cache_test --backend cuda
+```
+
+The test uses small synthetic weights, so no GGUF is required. It checks exact
+logit agreement across reserved capacities, live attention boundaries at 256
+and 512 slots, reference-prefix reuse, cache growth, reset and invalid inputs.
+It also compares against the shared decoder's independent full-prefill path.
+
+Add `--extended` on either backend to sweep prompt lengths immediately below,
+at and above 128-token block and 256-slot attention boundaries through 1,025
+tokens. This also checks nondividing block sizes, one-row embedding/token graph
+transitions, prefix clamping and suffix replacement, reserved capacities
+through 8,193 slots, 769 consecutive decode steps through a full cache, and
+recovery after invalid inputs. Different reserved capacities must produce
+identical logits; the independent full-prefill reference uses a 0.003 absolute
+logit tolerance because its graph shapes and attention reductions differ.
+
+For speech regression, use Bruno, the stable preset, seed 1234, and:
+
+> The morning sun fills the room with light. A small bird sings outside the window.
+
+Compare fresh loads at `max_tokens` 200, 400 and 600 on CPU, and 718 and 719 on
+CUDA. Repeat the 200-token request after another voice's 1,000-token request has
+enlarged the cache. Within each backend and GGUF, the WAVs should match exactly.
+Check speech completeness separately: the model can emit its end-of-speech token
+before speaking all of the text, even when cache invariance passes. Also check a
+longer prompt that crosses an active attention boundary. Token limits below the
+generated speech length can still truncate output normally; this check requires
+sufficient generation room.
+
+For the 306-token Bruno prompt above, also compare `max_tokens` 206/207,
+462/463, 718/719 and 974/975, then 8,192 followed by 200 in the same session.
+Check rejected limits (0, -1 and 8,193) followed by another valid request.
+Compare chunk sizes 80, 81 and 82 at budgets 200 and 1,000: each chunk size
+must be invariant to the budget, although different chunking can legitimately
+produce different speech. Check a longer single chunk at sufficient budgets
+to exercise additional live attention windows. Limits immediately below, at
+and above the generated speech-token count distinguish normal truncation from
+cache-size sensitivity.
+
 ### Updated BF16, Q8 and hybrid Q4
 
 Build `kitten_tts2_session_probe` with `-DENGINE_BUILD_MODEL_TESTS=ON` in both

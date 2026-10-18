@@ -1077,6 +1077,7 @@ audiocpp_add_model(piper_tts
 audiocpp_add_model(kitten_tts2
     SOURCES
         src/community_models/kitten_tts2/session.cpp
+        src/community_models/kitten_tts2/lm_runtime.cpp
         src/community_models/kitten_tts2/decoder.cpp
         src/community_models/kitten_tts2/student_decoder.cpp
         src/community_models/kitten_tts2/student_int8.cpp
@@ -3100,6 +3101,10 @@ if (ENGINE_BUILD_TESTS OR ENGINE_BUILD_EXTENDED_TESTS OR ENGINE_BUILD_MODEL_TEST
         # (moved next to the other moss_tts_nano tests)
     endif()
     if ("kitten_tts2" IN_LIST AUDIOCPP_LINKED_MODELS)
+        add_executable(kitten_tts2_cache_test tests/kitten_tts2/cache_test.cpp)
+        audiocpp_use_utf8_codepage(kitten_tts2_cache_test)
+        target_link_libraries(kitten_tts2_cache_test PRIVATE engine_runtime)
+        add_test(NAME kitten_tts2_cache_test COMMAND kitten_tts2_cache_test)
         add_executable(audiocpp_kitten_tts2_prepare_voices tools/community_models/prepare_kitten_tts2_voices.cpp)
         audiocpp_use_utf8_codepage(audiocpp_kitten_tts2_prepare_voices)
         target_link_libraries(audiocpp_kitten_tts2_prepare_voices PRIVATE engine_runtime)
