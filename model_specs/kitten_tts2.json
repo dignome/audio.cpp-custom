@@ -172,7 +172,7 @@
         "type": "bool",
         "required": false,
         "default": false,
-        "description": "Insert <pause> after sentence-ending periods (.) between sentences within each text chunk. Preserves punctuation; skips common abbreviations, decimals and existing pauses. May change delivery; does not guarantee complete speech."
+        "description": "Help reduce early termination that leaves later sentences unspoken by inserting <pause> after sentence-ending periods (.) within each text chunk. Preserves punctuation; skips common abbreviations, decimals and existing pauses. May change delivery; does not guarantee complete speech."
       },
       {
         "name": "reference_text",

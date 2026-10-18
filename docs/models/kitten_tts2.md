@@ -210,10 +210,13 @@ reference prefix and starts fresh target generation. Joins trim edge silence,
 apply short fades, and insert 160 ms gaps. Expression tags reach the model
 verbatim and enable its emotion prefix. Expand numbers/abbreviations when needed.
 
-To add pause markup after sentence-ending periods, use
-`--request-option sentence_pauses=true`
-(API `"options": {"sentence_pauses": true}`). The framework first chunks
-the original text normally. Kitten then inserts
+Kitten TTS 2 can sometimes end speech after an early sentence, leaving later
+sentences in the same chunk unspoken. To help reduce this early termination,
+enable `--request-option sentence_pauses=true`
+(API `"options": {"sentence_pauses": true}`). Adding `<pause>` between sentences
+can encourage the model to continue speaking the remaining text.
+
+The framework first chunks the original text normally. Kitten then inserts
 `<pause>` after recognized sentence-ending ASCII periods (`.`) between
 sentences within each chunk, preserving punctuation and original text. Common
 English abbreviations, decimal points, ellipses and punctuation inside markup

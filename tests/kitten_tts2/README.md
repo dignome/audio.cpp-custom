@@ -31,6 +31,10 @@ build-kitten2/bin/model_spec_system_test
 
 ## Optional sentence pauses
 
+This option can help when the model ends speech after an early sentence and
+omits later sentences in the same chunk. Use a reproducible omission case to
+check whether the enabled output includes the previously missing sentences.
+
 Build and run `kitten_tts2_text_test` with `ENGINE_BUILD_MODEL_TESTS=ON`.
 It needs no GGUF and checks period boundaries, common English abbreviations,
 decimals, ellipses, closing quotes, markup, existing pause tags and UTF-8 input.
